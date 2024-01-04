@@ -1,0 +1,478 @@
+use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler, spawn};
+use actix_web::{get, web, App, HttpServer, HttpResponse, Responder, HttpRequest};
+use actix_web_actors::ws;
+use actix_web::web::{Data, Payload};
+use actix_web::post;
+use actix_session::{Session, CookieSession};
+use actix_files;
+use actix_web::cookie::Key;
+
+use bcrypt::{hash, DEFAULT_COST};
+
+use surrealdb::{Result, Surreal};
+use surrealdb::opt::auth::Root;
+use surrealdb::engine::remote::ws::{Client, Ws};
+
+use serde::{Serialize, Deserialize};
+use serde_json::Value;
+
+use uuid::{Uuid, uuid};
+
+use chrono::{DateTime, Utc, NaiveDateTime};
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
+use std::fs::read_to_string;
+use rand::{distributions::Alphanumeric, Rng};
+
+use serde_json;
+use serde_json::json;
+
+//use anyhow::Result;
+
+pub struct AppState {
+    db: Arc<Surreal<Client>>,
+    actor_registry: Arc<Mutex<HashMap<String, Addr<WsActor>>>>,
+    main_room_id: String,
+}
+
+impl AppState {
+    pub async fn add_ws(&self, room_ids: Vec<String>, user_id: String, address: Addr<WsActor>) -> Result<()> {
+        //self.actor_registry.lock().unwrap().insert(user_id, address);
+        for room_id in room_ids {
+            let created: Option<Connection> = self.db.create(("connections", user_id.clone()))
+                .content(Connection {
+                    user_id: user_id.clone(),
+                })
+                .await.expect("error sending_message");
+        }
+
+        Ok(())
+    }
+    pub async fn remove_ws(&self, room_ids: Vec<String>, user_id: String) -> Result<()> {
+        for room_id in room_ids {
+            let query = format!(
+                "DELETE FROM connections WHERE user_id = {} RETURN BEFORE;",
+                user_id
+            );
+
+            //let connection:Option<Connection> = self.connections.delete((room_id, user_id)).await?;
+            self.db.query(&query).await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn broadcast_message(&self, message: String, sender_id: String) {
+        // Querying connections to get a list of UUIDs
+        for client in self.actor_registry.lock().unwrap().values(){
+            client.do_send(WsMessage(message.clone(), sender_id.clone()));
+        }
+    }
+
+    pub async fn catch_up(&self, room_id: String) -> Result<Vec<Message>> {
+
+        let sql = r#"SELECT * FROM messages ORDER BY timestamp ASC"#;
+    
+        let mut response = self.db.query(sql)
+            .await?;
+    
+        let messages: Vec<Message> = response.take(0)?;
+    
+        Ok(messages)
+    }  
+
+    async fn authenticate_user(&self, username: String, password: String) -> bool{
+
+        let result: Option<UserData> = self.db.select(("logins", username)).await.expect("something");
+        match result {
+            Some(user_data) => {
+                return bcrypt::verify(password, &user_data.password_hash).unwrap_or(false);
+            },
+            None => {
+                false
+            }
+        }
+    }
+}
+
+// A map of room IDs to a list of WebSocket connections
+struct WebSocketConnections {
+    connections: HashMap<Uuid, Vec<Addr<WsActor>>>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Connection{
+    user_id: String,
+}
+
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Message {
+    unique_id: String,
+    username: String,
+    content: String,
+    sender_id: String,
+    room_id: String,
+    timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct IncomingMessage {
+    content: String,
+}
+
+struct WsMessage(pub String, pub String);
+
+impl actix::Message for WsMessage {
+    type Result = ();
+}
+
+// Define HTTP actor for WebSocket
+struct WsActor {
+    id: String,
+    username: String,
+    current_room: String,
+    rooms: Vec<String>, // List of room IDs the actor is part of
+    state: Arc<AppState>, 
+}
+
+impl WsActor {
+    fn set_username(&mut self, new_username: String) {
+        self.username = new_username;
+    }
+
+    async fn delete_message(&self, unique_id: String) -> Result<()> {
+        let created: Option<Message> = self.state.db.delete(("messages", unique_id))
+            .await.expect("error sending_message");
+
+        Ok(())
+    }
+}
+
+impl Actor for WsActor {
+    type Context = ws::WebsocketContext<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+
+        self.state.actor_registry.lock().unwrap().insert(self.id.clone(), ctx.address());
+        // Call the remove_ws function on the AppState
+        // Here, we clone the rooms vector and the AppState Arc to pass them to the function
+        let app_state = self.state.clone();
+        let room_id = self.current_room.clone();
+        let actor_addr = ctx.address();
+        let user_id = self.id.clone();
+        let default_username = self.username.clone();
+        let room_ids = self.rooms.clone();
+        let connections = self.state.db.clone();
+
+        println!("{}", room_id);
+        println!("{:?}", room_ids);
+
+        // Clone the actor address for use in the async block
+        let actor_addr_clone = actor_addr.clone();
+
+        let init_message = json!({
+            "type": "init",
+            "user_id": user_id.clone(),
+            "username": default_username
+        });
+
+        ctx.text(init_message.to_string());
+
+        // Since we're in an asynchronous context, we need to spawn a blocking task to handle this
+        // This is important to avoid blocking the async runtime with the mutex lock inside remove_ws
+        // Use actix::spawn to handle asynchronous code
+        actix::spawn(async move {
+            for room_id in room_ids {
+                let created: Vec<Connection> = connections.create(("connections"))
+                    .content(Connection {
+                        user_id: user_id.clone(),
+                    })
+                    .await.expect("error sending_message");
+                println!("I did something");
+            }
+            match app_state.catch_up(room_id.clone()).await {
+                Ok(messages) => {
+                    for message in messages {
+                        // Serialize each message and send it to the actor
+                        let serialized_msg = serde_json::to_string(&message).unwrap();
+                        // Send the serialized message to the WsActor
+                        // This will be handled by the actor's message handler
+                        actor_addr_clone.do_send(WsMessage(serialized_msg, room_id.clone()));
+                    }
+                }
+                Err(e) => {
+                    // Handle the error, e.g., log it
+                    eprintln!("Error catching up messages: {:?}", e);
+                }
+            }
+        });
+    }
+
+    fn stopped(&mut self, ctx: &mut Self::Context) {
+
+        let string_user_id = self.id.to_string();
+        let room_ids = self.rooms.clone();
+        let string_room_ids: Vec<String> = room_ids.iter().map(|x| x.to_string()).collect();
+        let connections = self.state.db.clone();
+
+        actix::spawn(async move {
+            for room_id in string_room_ids {
+                let connection:Option<Connection> = connections.delete(("connections", string_user_id.clone())).await.expect("OOOH");
+            }
+        });
+    }
+}
+
+impl Handler<WsMessage> for WsActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: WsMessage, ctx: &mut Self::Context) {
+        // Always send the message to the client, including the sender
+        ctx.text(msg.0);
+    }
+}
+
+impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsActor {
+    fn handle(&mut self, msg: std::result::Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
+        if let Ok(ws::Message::Text(text)) = msg {
+            //add_room doesnt work yet
+            if text.starts_with("add_room:") {
+                let room_id_str = text.replace("add_room:", "");
+                if let Ok(room_id) = Uuid::parse_str(&room_id_str) {
+                    let user_id = self.id.to_string(); // Assuming self.id is a unique identifier
+                    let app_state = self.state.clone();
+
+                    actix::spawn(async move {
+                        let query = format!(
+                            "UPDATE Room SET connections = ARRAY_APPEND(connections, '{}') WHERE id = '{}'",
+                            user_id, room_id
+                        );
+                        //change to chat rooms
+                        if let Err(e) = app_state.db.query(&query).await {
+                            eprintln!("Error adding to room: {:?}", e);
+                        }
+                    });
+                } else {
+                    eprintln!("Invalid room ID format: {:?}", room_id_str);
+                }
+            } else if text.starts_with("set_username:") {
+                let new_username = text.replace("set_username:", "").trim().to_string();
+                self.set_username(new_username);
+            } else {
+                // Normal message handling
+                match serde_json::from_str::<IncomingMessage>(&text) {
+                    Ok(incoming_message) => {
+                        let content = incoming_message.content;
+            
+                        let app_state = self.state.clone();
+                        let sender_id = self.id.to_string();
+                        let username =  self.username.clone();
+                        let room_id = self.rooms[0].to_string();
+                        let now = Utc::now();
+                        let timestamp = now.timestamp() as u64;
+                        let unique_id = Uuid::new_v4().to_string().replace("-", "");
+                        // Create the message only once, reusing the variables directly
+                        let message = Message {
+                            unique_id: unique_id.clone(),
+                            username: username.clone(), 
+                            content: content.clone(),
+                            timestamp,
+                            sender_id: sender_id.clone(),
+                            room_id: room_id.clone(), 
+                        };
+            
+                        actix::spawn(async move {
+                            // Use the variables directly, no need to clone them again
+                            let created: Option<Message> = app_state.db.create(("messages", unique_id.clone()))
+                                .content(Message {
+                                    unique_id,
+                                    username,
+                                    content,
+                                    timestamp,
+                                    sender_id: sender_id.clone(),
+                                    room_id,
+                                })
+                                .await.expect("error sending_message");
+            
+                            // Serialize the message once and use it
+                            let serialized_msg = serde_json::to_string(&message).unwrap();
+                            app_state.broadcast_message(serialized_msg, sender_id).await;
+                        });
+                    },
+                    Err(e) => eprintln!("Error processing message: {:?}", e),
+                }
+            }
+        }
+    }
+}
+
+async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
+    let main_room_id = state.main_room_id.clone();
+
+    //let user_id_str = session.get::<String>("user_id").unwrap_or(None).unwrap();
+
+    let ws_actor = WsActor {
+        id: session.get("key").unwrap().unwrap(),
+        //id: Uuid::new_v4().to_string().replace("-", ""),
+        username: "None".to_string(),
+        current_room: main_room_id.clone(),
+        rooms: vec![main_room_id],
+        state: state.into_inner().clone(),
+    };
+
+    // Start the WebSocket connection with the created WsActor
+    ws::start(ws_actor, &req, stream)
+}
+
+#[get("/login")]
+async fn login_form() -> impl Responder {
+    let path = "static/login_page.html";
+    match read_to_string(path) {
+        Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
+        Err(err) => {
+            eprintln!("Failed to read homepage HTML: {:?}", err);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct LoginForm {
+    username: String,
+    password: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct UserData {
+    username: String,
+    password_hash: String,
+    user_id: String,
+}
+
+/*works insecure 
+async fn login_action(state: web::Data<AppState>, form: web::Form<LoginForm>) -> impl Responder {
+    if state.authenticate_user(form.username.clone(), form.password.clone()).await {
+        // Redirect to the home page with a temporary query parameter
+        HttpResponse::Found().append_header(("LOCATION", "/?login=success")).finish()
+    } else {
+        HttpResponse::Unauthorized().body("Invalid credentials")
+    }
+}
+
+#[get("/")]
+async fn home_page(req: HttpRequest) -> impl Responder {
+    // Check for the query parameter
+    let query = req.query_string();
+    if query.contains("login=success") {
+        let path = "static/home_page.html";
+        match read_to_string(path) {
+            Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
+            Err(err) => {
+                eprintln!("Failed to read homepage HTML: {:?}", err);
+                HttpResponse::InternalServerError().finish()
+            }
+        }
+    } else {
+        HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
+    }
+}
+*/
+
+async fn login_action(state: web::Data<AppState>, form: web::Form<LoginForm>, session: Session) -> impl Responder {
+    if state.authenticate_user(form.username.clone(), form.password.clone()).await {
+        // Redirect to the home page with a temporary query parameter
+        session.insert("key", form.username.clone()).unwrap();
+        HttpResponse::Found().append_header(("LOCATION", "/")).finish()
+    } else {
+        HttpResponse::Unauthorized().body("Invalid credentials")
+    }
+}
+
+#[get("/")]
+async fn home_page(session: Session) -> impl Responder {
+    let val: Option<String> = session.get("key").unwrap();
+
+    match val {
+        Some(user_id) => {
+            let path = "static/home_page.html";
+            match read_to_string(path) {
+                Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
+                Err(err) => {
+                    println!("Minumum");
+                    eprintln!("Failed to read homepage HTML: {:?}", err);
+                    HttpResponse::InternalServerError().finish()
+                }
+            }
+        }
+        None => {
+            println!("Maximum");
+            HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
+        }
+    }
+}
+
+async fn login_page() -> impl Responder {
+    let path = "static/login_page.html";
+    match read_to_string(path) {
+        Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
+        Err(err) => {
+            eprintln!("Failed to read homepage HTML: {:?}", err);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    let db = Surreal::new::<Ws>("localhost:8000").await.expect("something_horrible");
+
+    // Signin as a namespace, database, or root user
+    db.signin(Root {
+        username: "root",
+        password: "root",
+    }).await.expect("error");
+
+    // Select a specific namespace / database
+    db.use_ns("general").use_db("all").await.expect("Something bad");
+
+    let hashed_password = match hash("password", DEFAULT_COST) {
+        Ok(hashed) => hashed,
+        Err(_) => {
+            return Ok(()) // convert the error into a type that the function can return
+        }
+    };
+
+    let test: Option<UserData> = db.create(("logins", "test"))
+        .content(UserData {
+            username: "test".to_string(),
+            user_id: Uuid::new_v4().to_string().replace("-", ""),
+            password_hash: hashed_password,
+
+        }).await.expect("hahahah");
+
+    // Create the AppState with the SurrealDB client and main_room_id
+    let main_room_id = Uuid::new_v4().to_string().replace("-", "");
+    let app_state = web::Data::new(AppState {
+        db: Arc::new(db),
+        main_room_id,
+        actor_registry: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(app_state.clone())
+            .service(home_page)
+            .route("/login", web::get().to(login_page))
+            .route("/login", web::post().to(login_action))
+            .route("/ws/", web::get().to(ws_index))
+            .service(actix_files::Files::new("/static", "static").show_files_listing())
+            .wrap(CookieSession::signed(&[0; 32]).secure(false))
+            
+    })
+    .bind(("192.168.0.155", 8080))?
+    .run()
+    .await
+}
+
