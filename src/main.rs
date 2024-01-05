@@ -1,11 +1,7 @@
-use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler, spawn};
-use actix_web::{get, web, App, HttpServer, HttpResponse, Responder, HttpRequest};
+use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler};
+use actix_web::{get, web, App, HttpServer, HttpResponse, Responder};
 use actix_web_actors::ws;
-use actix_web::web::{Data, Payload};
-use actix_web::post;
 use actix_session::{Session, CookieSession};
-use actix_files;
-use actix_web::cookie::Key;
 use names::{Generator, Name};
 
 use bcrypt::{hash, DEFAULT_COST};
@@ -15,21 +11,18 @@ use surrealdb::opt::auth::Root;
 use surrealdb::engine::remote::ws::{Client, Ws};
 
 use serde::{Serialize, Deserialize};
-use serde_json::Value;
 
-use uuid::{Uuid, uuid};
+use uuid::Uuid;
 
-use chrono::{DateTime, Utc, NaiveDateTime};
+use chrono::Utc;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::fs::read_to_string;
-use rand::{distributions::Alphanumeric, Rng};
 
-use serde_json;
 use serde_json::json;
 
-use validator::{Validate, ValidationError};
+use validator::Validate;
 //use anyhow::Result;
 
 pub struct AppState {
@@ -66,7 +59,7 @@ impl AppState {
         Ok(())
     }
 
-    pub async fn broadcast_message(&self, message: String, sender_id: String) {
+    pub async fn broadcast_message(&self, message: String, sender_id: String, room_id: String) {
         // Querying connections to get a list of UUIDs
         for client in self.actor_registry.lock().unwrap().values(){
             client.do_send(WsMessage(message.clone(), sender_id.clone()));
@@ -85,14 +78,14 @@ impl AppState {
         Ok(messages)
     }  
 
-    async fn authenticate_user(&self, username: String, password: String) -> bool{
-        let query = format!{"SELECT * FROM users WHERE login_username = '{}';", username.clone()};
+    async fn authenticate_user(&self, username: &str, password: &str) -> bool{
+        let query = format!{"SELECT * FROM users WHERE login_username = '{}';", username};
         let mut response = self.db.query(query).await.expect("aaaah");
         let result: Option<UserData> = response.take(0).expect("cool");
         //let result: Option<UserData> = self.db.select(("logins", username)).await.expect("something");
         match result {
             Some(user_data) => {
-                return bcrypt::verify(password, &user_data.hashed_password).unwrap_or(false);
+                bcrypt::verify(password, &user_data.hashed_password).unwrap_or(false)
             },
             None => {
                 false
@@ -101,16 +94,14 @@ impl AppState {
     }
 
     async fn valid_user_credentials(&self, signup_data: LoginForm) -> bool{
-        let result: Option<UserData> = self.db.select(("logins", signup_data.username.clone())).await.expect("something");
+        let result: Option<UserData> = self.db.select(("logins", &signup_data.username)).await.expect("something");
         match result {
-            Some(user_data) => {
-                return false;
+            //exists
+            Some(_) => {
+                false
             },
             None => {
-                match signup_data.validate() {
-                    Ok(_) => return true,
-                    Err(_) => return false,
-                };
+                signup_data.validate().is_ok()
             }
         }
         
@@ -197,9 +188,6 @@ impl Actor for WsActor {
         let room_ids = self.rooms.clone();
         let connections = self.state.db.clone();
 
-        println!("{}", room_id);
-        println!("{:?}", room_ids);
-
         // Clone the actor address for use in the async block
         let actor_addr_clone = actor_addr.clone();
 
@@ -216,13 +204,12 @@ impl Actor for WsActor {
         // Use actix::spawn to handle asynchronous code
         actix::spawn(async move {
             for room_id in room_ids {
-                let created: Vec<Connection> = connections.create(("connections"))
+                let created: Vec<Connection> = connections.create("connections")
                     .content(Connection {
                         user_id: ws_id.clone(),
                         state: ConnectionState::Inactive,
                     })
                     .await.expect("error sending_message");
-                println!("I did something");
             }
             match app_state.catch_up(room_id.clone()).await {
                 Ok(messages) => {
@@ -294,7 +281,6 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                 self.set_username(new_username.clone());
                 let query = format! {"UPDATE user SET username = '{}' WHERE login_username = '{}';", new_username.clone(), self.login_username.clone()};
                 let db = self.state.db.clone();
-                println!("{}", query);
                 actix::spawn(async move{
                     db.query(query.clone()).await.expect("shit");
                 });
@@ -310,7 +296,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                         let room_id = self.rooms[0].clone();
                         let now = Utc::now();
                         let timestamp = now.timestamp() as u64;
-                        let unique_id = Uuid::new_v4().to_string().replace("-", "");
+                        let unique_id = Uuid::new_v4().to_string().replace('-', "");
                         // Create the message only once, reusing the variables directly
                         let message = Message {
                             unique_id: unique_id.clone(),
@@ -330,13 +316,13 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                     content,
                                     timestamp,
                                     sender_id: sender_id.clone(),
-                                    room_id,
+                                    room_id: room_id.clone(),
                                 })
                                 .await.expect("error sending_message");
             
                             // Serialize the message once and use it
                             let serialized_msg = serde_json::to_string(&message).unwrap();
-                            app_state.broadcast_message(serialized_msg, sender_id).await;
+                            app_state.broadcast_message(serialized_msg, sender_id, room_id).await;
                         });
                     },
                     Err(e) => eprintln!("Error processing message: {:?}", e),
@@ -349,13 +335,12 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
 async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
     let login_username: String = session.get("key").unwrap().unwrap();
-    println!("{}", login_username);
     let query = format!{"SELECT username FROM users WHERE login_username = '{}';", login_username};
     let mut response = state.db.query(query).await.expect("aaaah");
     let username: Option<String> = response.take((0, "username")).expect("cool");
     let ws_actor = WsActor {
         login_username,
-        ws_id: Uuid::new_v4().to_string().replace("-", ""),
+        ws_id: Uuid::new_v4().to_string().replace('-', ""),
         username: username.unwrap(),
         current_room: main_room_id.clone(),
         rooms: vec![main_room_id],
@@ -442,7 +427,7 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Form<LoginFo
         let hashed_password = hash(form.password.clone(), DEFAULT_COST).unwrap();
         let create: Vec<UserData> = state.db.create("users").content(UserData {
             login_username: form.username.clone(),
-            username: generator.next().unwrap().replace("-", ""),
+            username: generator.next().unwrap().replace('-', ""),
             hashed_password,
 
         }).await.expect("shit");
@@ -466,7 +451,7 @@ async fn login_page() -> impl Responder {
 }
 
 async fn login_action(state: web::Data<AppState>, form: web::Form<LoginForm>, session: Session) -> impl Responder {
-    if state.authenticate_user(form.username.clone(), form.password.clone()).await {
+    if state.authenticate_user(&form.username, &form.password).await {
         session.insert("key", form.username.clone()).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
@@ -479,19 +464,18 @@ async fn home_page(session: Session) -> impl Responder {
     let val: Option<String> = session.get("key").unwrap();
 
     match val {
-        Some(user_id) => {
+        //some user_id
+        Some(_) => {
             let path = "static/home_page.html";
             match read_to_string(path) {
                 Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
                 Err(err) => {
-                    println!("Minumum");
                     eprintln!("Failed to read homepage HTML: {:?}", err);
                     HttpResponse::InternalServerError().finish()
                 }
             }
         }
         None => {
-            println!("Maximum");
             HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
         }
     }
@@ -525,7 +509,7 @@ async fn main() -> std::io::Result<()> {
 
         }).await.expect("hahahah");
 
-    let main_room_id = Uuid::new_v4().to_string().replace("-", "");
+    let main_room_id = Uuid::new_v4().to_string().replace('-', "");
     let app_state = web::Data::new(AppState {
         db: Arc::new(db),
         main_room_id,
