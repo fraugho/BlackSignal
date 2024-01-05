@@ -23,8 +23,9 @@ serde = { version = "1.0.193", features = ["derive"] }
 
 
 surrealdb = "1.0.2"
-validator = "0.16.1"
+validator = { version = "0.16.1", features = ["derive"] }
 anyhow = "1.0.78"
 bcrypt = "0.15.0"
 rand = "0.8.5"
+names = { version = "0.14.0", default-features = false }
 #reqwest = "0.11"
