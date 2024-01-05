@@ -6,6 +6,7 @@ use actix_web::post;
 use actix_session::{Session, CookieSession};
 use actix_files;
 use actix_web::cookie::Key;
+use names::{Generator, Name};
 
 use bcrypt::{hash, DEFAULT_COST};
 
@@ -28,6 +29,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde_json;
 use serde_json::json;
 
+use validator::{Validate, ValidationError};
 //use anyhow::Result;
 
 pub struct AppState {
@@ -43,6 +45,7 @@ impl AppState {
             let created: Option<Connection> = self.db.create(("connections", user_id.clone()))
                 .content(Connection {
                     user_id: user_id.clone(),
+                    state: ConnectionState::Inactive,
                 })
                 .await.expect("error sending_message");
         }
@@ -83,16 +86,34 @@ impl AppState {
     }  
 
     async fn authenticate_user(&self, username: String, password: String) -> bool{
-
-        let result: Option<UserData> = self.db.select(("logins", username)).await.expect("something");
+        let query = format!{"SELECT * FROM users WHERE login_username = '{}';", username.clone()};
+        let mut response = self.db.query(query).await.expect("aaaah");
+        let result: Option<UserData> = response.take(0).expect("cool");
+        //let result: Option<UserData> = self.db.select(("logins", username)).await.expect("something");
         match result {
             Some(user_data) => {
-                return bcrypt::verify(password, &user_data.password_hash).unwrap_or(false);
+                return bcrypt::verify(password, &user_data.hashed_password).unwrap_or(false);
             },
             None => {
                 false
             }
         }
+    }
+
+    async fn valid_user_credentials(&self, signup_data: LoginForm) -> bool{
+        let result: Option<UserData> = self.db.select(("logins", signup_data.username.clone())).await.expect("something");
+        match result {
+            Some(user_data) => {
+                return false;
+            },
+            None => {
+                match signup_data.validate() {
+                    Ok(_) => return true,
+                    Err(_) => return false,
+                };
+            }
+        }
+        
     }
 }
 
@@ -102,8 +123,16 @@ struct WebSocketConnections {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+enum ConnectionState {
+    Active,
+    Inactive,
+    Offline,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 struct Connection{
     user_id: String,
+    state: ConnectionState,
 }
 
 
@@ -130,7 +159,8 @@ impl actix::Message for WsMessage {
 
 // Define HTTP actor for WebSocket
 struct WsActor {
-    id: String,
+    ws_id: String,
+    login_username: String,
     username: String,
     current_room: String,
     rooms: Vec<String>, // List of room IDs the actor is part of
@@ -155,13 +185,14 @@ impl Actor for WsActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
 
-        self.state.actor_registry.lock().unwrap().insert(self.id.clone(), ctx.address());
+        self.state.actor_registry.lock().unwrap().insert(self.ws_id.clone(), ctx.address());
         // Call the remove_ws function on the AppState
         // Here, we clone the rooms vector and the AppState Arc to pass them to the function
         let app_state = self.state.clone();
         let room_id = self.current_room.clone();
         let actor_addr = ctx.address();
-        let user_id = self.id.clone();
+        let ws_id = self.ws_id.clone();
+        let login_username = self.login_username.clone();
         let default_username = self.username.clone();
         let room_ids = self.rooms.clone();
         let connections = self.state.db.clone();
@@ -174,7 +205,7 @@ impl Actor for WsActor {
 
         let init_message = json!({
             "type": "init",
-            "user_id": user_id.clone(),
+            "user_id": login_username.clone(),
             "username": default_username
         });
 
@@ -187,7 +218,8 @@ impl Actor for WsActor {
             for room_id in room_ids {
                 let created: Vec<Connection> = connections.create(("connections"))
                     .content(Connection {
-                        user_id: user_id.clone(),
+                        user_id: ws_id.clone(),
+                        state: ConnectionState::Inactive,
                     })
                     .await.expect("error sending_message");
                 println!("I did something");
@@ -212,7 +244,7 @@ impl Actor for WsActor {
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
 
-        let string_user_id = self.id.to_string();
+        let string_user_id = self.ws_id.to_string();
         let room_ids = self.rooms.clone();
         let string_room_ids: Vec<String> = room_ids.iter().map(|x| x.to_string()).collect();
         let connections = self.state.db.clone();
@@ -241,7 +273,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
             if text.starts_with("add_room:") {
                 let room_id_str = text.replace("add_room:", "");
                 if let Ok(room_id) = Uuid::parse_str(&room_id_str) {
-                    let user_id = self.id.to_string(); // Assuming self.id is a unique identifier
+                    let user_id = self.ws_id.to_string(); // Assuming self.id is a unique identifier
                     let app_state = self.state.clone();
 
                     actix::spawn(async move {
@@ -259,7 +291,13 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                 }
             } else if text.starts_with("set_username:") {
                 let new_username = text.replace("set_username:", "").trim().to_string();
-                self.set_username(new_username);
+                self.set_username(new_username.clone());
+                let query = format! {"UPDATE user SET username = '{}' WHERE login_username = '{}';", new_username.clone(), self.login_username.clone()};
+                let db = self.state.db.clone();
+                println!("{}", query);
+                actix::spawn(async move{
+                    db.query(query.clone()).await.expect("shit");
+                });
             } else {
                 // Normal message handling
                 match serde_json::from_str::<IncomingMessage>(&text) {
@@ -267,9 +305,9 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                         let content = incoming_message.content;
             
                         let app_state = self.state.clone();
-                        let sender_id = self.id.to_string();
+                        let sender_id = self.login_username.clone();
                         let username =  self.username.clone();
-                        let room_id = self.rooms[0].to_string();
+                        let room_id = self.rooms[0].clone();
                         let now = Utc::now();
                         let timestamp = now.timestamp() as u64;
                         let unique_id = Uuid::new_v4().to_string().replace("-", "");
@@ -310,13 +348,15 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
 
 async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
-
-    //let user_id_str = session.get::<String>("user_id").unwrap_or(None).unwrap();
-
+    let login_username: String = session.get("key").unwrap().unwrap();
+    println!("{}", login_username);
+    let query = format!{"SELECT username FROM users WHERE login_username = '{}';", login_username};
+    let mut response = state.db.query(query).await.expect("aaaah");
+    let username: Option<String> = response.take((0, "username")).expect("cool");
     let ws_actor = WsActor {
-        id: session.get("key").unwrap().unwrap(),
-        //id: Uuid::new_v4().to_string().replace("-", ""),
-        username: "None".to_string(),
+        login_username,
+        ws_id: Uuid::new_v4().to_string().replace("-", ""),
+        username: username.unwrap(),
         current_room: main_room_id.clone(),
         rooms: vec![main_room_id],
         state: state.into_inner().clone(),
@@ -338,17 +378,19 @@ async fn login_form() -> impl Responder {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Validate)]
 struct LoginForm {
+    #[validate(email)]
     username: String,
+    #[validate(length(min = 1))]
     password: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct UserData {
+    login_username: String,
     username: String,
-    password_hash: String,
-    user_id: String,
+    hashed_password: String,
 }
 
 /*works insecure 
@@ -379,10 +421,52 @@ async fn home_page(req: HttpRequest) -> impl Responder {
     }
 }
 */
+async fn create_login_page() -> impl Responder {
+    let path = "static/create_login_page.html";
+    match read_to_string(path) {
+        Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
+        Err(err) => {
+            eprintln!("Failed to read homepage HTML: {:?}", err);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+async fn create_login_action(state: web::Data<AppState>, form: web::Form<LoginForm>, session: Session) -> impl Responder {
+    let login = LoginForm{
+        username: form.username.clone(),
+        password: form.password.clone(),
+    };
+    if state.valid_user_credentials(login).await {
+        let mut generator = Generator::with_naming(Name::Numbered);
+        let hashed_password = hash(form.password.clone(), DEFAULT_COST).unwrap();
+        let create: Vec<UserData> = state.db.create("users").content(UserData {
+            login_username: form.username.clone(),
+            username: generator.next().unwrap().replace("-", ""),
+            hashed_password,
+
+        }).await.expect("shit");
+        session.insert("key", form.username.clone()).unwrap();
+        HttpResponse::Found().append_header(("LOCATION", "/")).finish()
+    } else {
+        HttpResponse::Unauthorized().body("Invalid credentials")
+    }
+}
+
+
+async fn login_page() -> impl Responder {
+    let path = "static/login_page.html";
+    match read_to_string(path) {
+        Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
+        Err(err) => {
+            eprintln!("Failed to read homepage HTML: {:?}", err);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
 
 async fn login_action(state: web::Data<AppState>, form: web::Form<LoginForm>, session: Session) -> impl Responder {
     if state.authenticate_user(form.username.clone(), form.password.clone()).await {
-        // Redirect to the home page with a temporary query parameter
         session.insert("key", form.username.clone()).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
@@ -413,46 +497,34 @@ async fn home_page(session: Session) -> impl Responder {
     }
 }
 
-async fn login_page() -> impl Responder {
-    let path = "static/login_page.html";
-    match read_to_string(path) {
-        Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
-        Err(err) => {
-            eprintln!("Failed to read homepage HTML: {:?}", err);
-            HttpResponse::InternalServerError().finish()
-        }
-    }
-}
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let db = Surreal::new::<Ws>("localhost:8000").await.expect("something_horrible");
 
-    // Signin as a namespace, database, or root user
     db.signin(Root {
         username: "root",
         password: "root",
     }).await.expect("error");
 
-    // Select a specific namespace / database
     db.use_ns("general").use_db("all").await.expect("Something bad");
 
     let hashed_password = match hash("password", DEFAULT_COST) {
         Ok(hashed) => hashed,
         Err(_) => {
-            return Ok(()) // convert the error into a type that the function can return
+            return Ok(())
         }
     };
 
-    let test: Option<UserData> = db.create(("logins", "test"))
+    let test: Option<UserData> = db.create(("users", "test"))
         .content(UserData {
+            login_username: "test@gmail.com".to_string(),
             username: "test".to_string(),
-            user_id: Uuid::new_v4().to_string().replace("-", ""),
-            password_hash: hashed_password,
+            hashed_password,
 
         }).await.expect("hahahah");
 
-    // Create the AppState with the SurrealDB client and main_room_id
     let main_room_id = Uuid::new_v4().to_string().replace("-", "");
     let app_state = web::Data::new(AppState {
         db: Arc::new(db),
@@ -466,6 +538,8 @@ async fn main() -> std::io::Result<()> {
             .service(home_page)
             .route("/login", web::get().to(login_page))
             .route("/login", web::post().to(login_action))
+            .route("/create_login", web::get().to(create_login_page))
+            .route("/create_login", web::post().to(create_login_action))
             .route("/ws/", web::get().to(ws_index))
             .service(actix_files::Files::new("/static", "static").show_files_listing())
             .wrap(CookieSession::signed(&[0; 32]).secure(false))
