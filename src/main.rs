@@ -25,6 +25,13 @@ use serde_json::json;
 use validator::Validate;
 //use anyhow::Result;
 
+
+/*
+Tables in DB
+Users
+Connections
+Messages
+*/
 pub struct AppState {
     db: Arc<Surreal<Client>>,
     actor_registry: Arc<Mutex<HashMap<String, Addr<WsActor>>>>,
@@ -37,7 +44,7 @@ impl AppState {
         for room_id in room_ids {
             let created: Option<Connection> = self.db.create(("connections", user_id.clone()))
                 .content(Connection {
-                    user_id: user_id.clone(),
+                    room_id: room_id.clone(),
                     state: ConnectionState::Inactive,
                 })
                 .await.expect("error sending_message");
@@ -66,7 +73,7 @@ impl AppState {
         }
     }
 
-    pub async fn catch_up(&self, room_id: String) -> Result<Vec<Message>> {
+    pub async fn catch_up(&self, room_id: &str) -> Result<Vec<Message>> {
 
         let sql = r#"SELECT * FROM messages ORDER BY timestamp ASC"#;
     
@@ -77,6 +84,17 @@ impl AppState {
     
         Ok(messages)
     }  
+
+    pub async fn get_rooms(&self, user_id: &str) -> Result<Vec<String>> {
+        let sql = format! {"SELECT room_id FROM connections WHERE id = '{}'", user_id};
+    
+        let mut response = self.db.query(sql)
+            .await?;
+    
+        let rooms: Vec<String> = response.take(0)?;
+    
+        Ok(rooms)
+    }
 
     async fn authenticate_user(&self, username: &str, password: &str) -> bool{
         let query = format!{"SELECT * FROM users WHERE login_username = '{}';", username};
@@ -122,7 +140,7 @@ enum ConnectionState {
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Connection{
-    user_id: String,
+    room_id: String,
     state: ConnectionState,
 }
 
@@ -204,17 +222,17 @@ impl Actor for WsActor {
         // Use actix::spawn to handle asynchronous code
         actix::spawn(async move {
             for room_id in room_ids {
-                let created: Vec<Connection> = connections.create("connections")
+                let created: Option<Connection> = connections.create(("connections", ws_id.clone()))
                     .content(Connection {
-                        user_id: ws_id.clone(),
+                        room_id: room_id.clone(),
                         state: ConnectionState::Inactive,
                     })
                     .await.expect("error sending_message");
             }
-            match app_state.catch_up(room_id.clone()).await {
+            match app_state.catch_up(&room_id).await {
                 Ok(messages) => {
                     for message in messages {
-                        // Serialize each message and send it to the actor
+
                         let serialized_msg = serde_json::to_string(&message).unwrap();
                         // Send the serialized message to the WsActor
                         // This will be handled by the actor's message handler
@@ -260,7 +278,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
             if text.starts_with("add_room:") {
                 let room_id_str = text.replace("add_room:", "");
                 if let Ok(room_id) = Uuid::parse_str(&room_id_str) {
-                    let user_id = self.ws_id.to_string(); // Assuming self.id is a unique identifier
+                    let user_id = self.login_username.to_string(); // Assuming self.id is a unique identifier
                     let app_state = self.state.clone();
 
                     actix::spawn(async move {
@@ -268,7 +286,6 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                             "UPDATE Room SET connections = ARRAY_APPEND(connections, '{}') WHERE id = '{}'",
                             user_id, room_id
                         );
-                        //change to chat rooms
                         if let Err(e) = app_state.db.query(&query).await {
                             eprintln!("Error adding to room: {:?}", e);
                         }
@@ -276,10 +293,25 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                 } else {
                     eprintln!("Invalid room ID format: {:?}", room_id_str);
                 }
+            } else if text.starts_with("change_room:") {
+                let room_id = text.replace("add_room:", "");
+                let user_id = self.login_username.clone();
+                let app_state = self.state.clone();
+                actix::spawn(async move {
+                    let query = format!(
+                        "UPDATE connections SET state = {} WHERE id = '{}'",
+                        user_id, room_id
+                    );
+                    if let Err(e) = app_state.db.query(&query).await {
+                        eprintln!("Error adding to room: {:?}", e);
+                    }
+                });
+                //eprintln!("Invalid room ID format: {}", room_id.clone());
+
             } else if text.starts_with("set_username:") {
                 let new_username = text.replace("set_username:", "").trim().to_string();
                 self.set_username(new_username.clone());
-                let query = format! {"UPDATE user SET username = '{}' WHERE login_username = '{}';", new_username.clone(), self.login_username.clone()};
+                let query = format! {"UPDATE users SET username = '{}' WHERE login_username = '{}';", new_username.clone(), self.login_username.clone()};
                 let db = self.state.db.clone();
                 actix::spawn(async move{
                     db.query(query.clone()).await.expect("shit");
@@ -378,34 +410,6 @@ struct UserData {
     hashed_password: String,
 }
 
-/*works insecure 
-async fn login_action(state: web::Data<AppState>, form: web::Form<LoginForm>) -> impl Responder {
-    if state.authenticate_user(form.username.clone(), form.password.clone()).await {
-        // Redirect to the home page with a temporary query parameter
-        HttpResponse::Found().append_header(("LOCATION", "/?login=success")).finish()
-    } else {
-        HttpResponse::Unauthorized().body("Invalid credentials")
-    }
-}
-
-#[get("/")]
-async fn home_page(req: HttpRequest) -> impl Responder {
-    // Check for the query parameter
-    let query = req.query_string();
-    if query.contains("login=success") {
-        let path = "static/home_page.html";
-        match read_to_string(path) {
-            Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
-            Err(err) => {
-                eprintln!("Failed to read homepage HTML: {:?}", err);
-                HttpResponse::InternalServerError().finish()
-            }
-        }
-    } else {
-        HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
-    }
-}
-*/
 async fn create_login_page() -> impl Responder {
     let path = "static/create_login_page.html";
     match read_to_string(path) {
@@ -437,7 +441,6 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Form<LoginFo
         HttpResponse::Unauthorized().body("Invalid credentials")
     }
 }
-
 
 async fn login_page() -> impl Responder {
     let path = "static/login_page.html";
@@ -480,8 +483,6 @@ async fn home_page(session: Session) -> impl Responder {
         }
     }
 }
-
-
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
