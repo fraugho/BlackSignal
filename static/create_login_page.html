@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
+    <title>Create Login</title>
     <link rel="stylesheet" type="text/css" href="static/login_page.css">
 </head>
 <body>
     <canvas id="canvas"></canvas>
-    <form action="/login" method="post">
-        <h2>Login</h2>
+    <form action="/create_login" method="post">
+        <h2>Create Login</h2>
+
         <label for="username">Username:</label>
         <input type="text" id="username" name="username" required>
 
@@ -18,12 +19,12 @@
         <input type="password" id="password" name="password" required>
 
         <input type="submit" value="Login">
-        <a href="/create_login">create_login</a>
     </form>
     <div id="error-message" style="color: red; display: none;">
         Invalid credentials
     </div>
 </body>
+
 
 <script>
     document.addEventListener("DOMContentLoaded", function() {
@@ -36,7 +37,7 @@
                 password: document.getElementById('password').value
             };
 
-            fetch('/login', {
+            fetch('/create_login', {
                 method: 'post',
                 headers: {
                     'Content-Type': 'application/json'
@@ -83,7 +84,6 @@
         this.style.borderColor = 'white'; // Changes the button's background color after it's clicked
     });
 </script>
-
 
 <script>
     // JavaScript code goes here
