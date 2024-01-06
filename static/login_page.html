@@ -21,6 +21,7 @@
         <a href="/create_login">create_login</a>
     </form>
 </body>
+
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         var form = document.querySelector("form");
@@ -70,6 +71,17 @@
         }
     });
 </script>
+
+<script>
+    document.getElementById('username').addEventListener('click', function() {
+        this.style.borderColor = 'white'; // Changes the button's background color after it's clicked
+    });
+    document.getElementById('password').addEventListener('click', function() {
+        this.style.borderColor = 'white'; // Changes the button's background color after it's clicked
+    });
+</script>
+
+
 <script>
     // JavaScript code goes here
     var s = window.screen;
