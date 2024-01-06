@@ -42,7 +42,7 @@ impl AppState {
     pub async fn add_ws(&self, room_ids: Vec<String>, user_id: String, address: Addr<WsActor>) -> Result<()> {
         //self.actor_registry.lock().unwrap().insert(user_id, address);
         for room_id in room_ids {
-            let created: Option<Connection> = self.db.create(("connections", user_id.clone()))
+            let _: Option<Connection> = self.db.create(("connections", user_id.clone()))
                 .content(Connection {
                     room_id: room_id.clone(),
                     state: ConnectionState::Inactive,
@@ -96,14 +96,14 @@ impl AppState {
         Ok(rooms)
     }
 
-    async fn authenticate_user(&self, username: &str, password: &str) -> bool{
-        let query = format!{"SELECT * FROM users WHERE login_username = '{}';", username};
+    async fn authenticate_user(&self, login_data: &LoginForm) -> bool{
+        let query = format!{"SELECT * FROM users WHERE login_username = '{}';", login_data.username};
         let mut response = self.db.query(query).await.expect("aaaah");
         let result: Option<UserData> = response.take(0).expect("cool");
         //let result: Option<UserData> = self.db.select(("logins", username)).await.expect("something");
         match result {
             Some(user_data) => {
-                bcrypt::verify(password, &user_data.hashed_password).unwrap_or(false)
+                bcrypt::verify(login_data.password.clone(), &user_data.hashed_password).unwrap_or(false)
             },
             None => {
                 false
@@ -111,14 +111,16 @@ impl AppState {
         }
     }
 
-    async fn valid_user_credentials(&self, signup_data: LoginForm) -> bool{
+    async fn valid_user_credentials(&self, signup_data: &LoginForm) -> bool{
         let result: Option<UserData> = self.db.select(("logins", &signup_data.username)).await.expect("something");
         match result {
             //exists
             Some(_) => {
+                println!("shit");
                 false
             },
             None => {
+                println!("validate: {}", signup_data.validate().is_ok());
                 signup_data.validate().is_ok()
             }
         }
@@ -182,7 +184,7 @@ impl WsActor {
     }
 
     async fn delete_message(&self, unique_id: String) -> Result<()> {
-        let created: Option<Message> = self.state.db.delete(("messages", unique_id))
+        let _: Option<Message> = self.state.db.delete(("messages", unique_id))
             .await.expect("error sending_message");
 
         Ok(())
@@ -222,7 +224,7 @@ impl Actor for WsActor {
         // Use actix::spawn to handle asynchronous code
         actix::spawn(async move {
             for room_id in room_ids {
-                let created: Option<Connection> = connections.create(("connections", ws_id.clone()))
+                let _: Option<Connection> = connections.create(("connections", ws_id.clone()))
                     .content(Connection {
                         room_id: room_id.clone(),
                         state: ConnectionState::Inactive,
@@ -341,7 +343,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
             
                         actix::spawn(async move {
                             // Use the variables directly, no need to clone them again
-                            let created: Option<Message> = app_state.db.create(("messages", unique_id.clone()))
+                            let _: Option<Message> = app_state.db.create(("messages", unique_id.clone()))
                                 .content(Message {
                                     unique_id,
                                     username,
@@ -421,24 +423,24 @@ async fn create_login_page() -> impl Responder {
     }
 }
 
-async fn create_login_action(state: web::Data<AppState>, form: web::Form<LoginForm>, session: Session) -> impl Responder {
-    let login = LoginForm{
-        username: form.username.clone(),
-        password: form.password.clone(),
-    };
-    if state.valid_user_credentials(login).await {
-        let mut generator = Generator::with_naming(Name::Numbered);
-        let hashed_password = hash(form.password.clone(), DEFAULT_COST).unwrap();
-        let create: Vec<UserData> = state.db.create("users").content(UserData {
-            login_username: form.username.clone(),
-            username: generator.next().unwrap().replace('-', ""),
-            hashed_password,
+async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginForm>, session: Session) -> impl Responder {
 
-        }).await.expect("shit");
-        session.insert("key", form.username.clone()).unwrap();
+    let login = form.into_inner();
+
+    if state.valid_user_credentials(&login).await {
+        let mut generator = Generator::with_naming(Name::Numbered);
+        let hashed_password = hash(login.password.clone(), DEFAULT_COST).unwrap();
+        let _: Vec<UserData> = state.db.create("users").content(
+            UserData {
+                login_username: login.username.clone(),
+                username: generator.next().unwrap().replace('-', ""),
+                hashed_password,
+            }).await.expect("shit");
+
+        session.insert("key", login.username.clone()).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
-        HttpResponse::Unauthorized().body("Invalid credentials")
+        HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
     }
 }
 
@@ -453,12 +455,14 @@ async fn login_page() -> impl Responder {
     }
 }
 
-async fn login_action(state: web::Data<AppState>, form: web::Form<LoginForm>, session: Session) -> impl Responder {
-    if state.authenticate_user(&form.username, &form.password).await {
-        session.insert("key", form.username.clone()).unwrap();
+async fn login_action(state: web::Data<AppState>, form: web::Json<LoginForm>, session: Session) -> impl Responder {
+    let login = form.into_inner(); 
+
+    if state.authenticate_user(&login).await {
+        session.insert("key", login.username.clone()).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
-        HttpResponse::Unauthorized().body("Invalid credentials")
+        HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
     }
 }
 

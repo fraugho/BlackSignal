@@ -33,7 +33,6 @@ input[type="submit"] {
 input[type="submit"]:hover {
     background-color: #3d3f41;
 }
-
 #canvas {
     position: fixed;
     top: 0;
