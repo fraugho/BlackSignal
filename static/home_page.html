@@ -29,7 +29,7 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script>
-        var senderId = uuid.v4();
+        var senderId = "";
         var username = "None"; // Default username
 
         var socket = new WebSocket("ws://192.168.0.155:8080/ws/");
@@ -38,16 +38,28 @@
             console.error("WebSocket error observed:", event);
         };
 
+        socket.onclose = function(event) {
+            if (!event.wasClean) {
+                window.location.href = '/login'; // Redirect to login page
+            }
+        };
+
         socket.onmessage = function(event) {
             console.log(event.data)
-            const data = JSON.parse(event.data);
+            const message = JSON.parse(event.data);
 
             // Handle initial setup message
-            if (data.type === "init") {
+            if (message.type === "init") {
                 // Set the UUID and username received from the server
-                senderId = data.user_id;
-                username = data.username;
+                senderId = message.user_id;
+                username = message.username;
                 return;
+            }
+
+            // Check if there's a 'logout' command from the server
+            if (message.type === "logout") {
+                // Redirect to the logout endpoint
+                window.location.href = '/logout';
             }
 
             const chatContainer = document.getElementById('chat-container');
@@ -55,15 +67,15 @@
             const usernameElement = document.createElement('div');
             const messageElement = document.createElement('div');
 
-            usernameElement.textContent = (data.username || "None") + ':';
+            usernameElement.textContent = (message.username || "None") + ':';
             usernameElement.classList.add('username');
-            messageElement.textContent = data.content;
+            messageElement.textContent = message.content;
 
             messageWrapper.appendChild(usernameElement);
             messageWrapper.appendChild(messageElement);
             messageWrapper.classList.add('chat-message');
 
-            if (data.sender_id === senderId) {
+            if (message.sender_id === senderId) {
                 messageWrapper.classList.add('sent-message');
             } else {
                 messageWrapper.classList.add('received-message');
