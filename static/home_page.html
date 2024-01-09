@@ -34,6 +34,14 @@
 
         var socket = new WebSocket("ws://192.168.0.155:8080/ws/");
 
+        const MessageTypes = {
+            SetUsername: "SetUsername",
+            AddRoom: "AddRoom",
+            ChangeRoom: "ChangeRoom",
+            RemoveFromRoom: "RemoveFromRoom",
+            Basic: "Basic"
+        };
+
         socket.onerror = function(event) {
             console.error("WebSocket error observed:", event);
         };
@@ -95,9 +103,9 @@
             const messageContent = textarea.value.trim();
 
             if (messageContent !== '') {
-                // Correct payload construction
                 const payload = {
-                    content: messageContent
+                    content: messageContent,
+                    message_type: MessageTypes.Basic // Assuming 'Basic' is a valid message type for normal messages
                 };
 
                 if (socket.readyState === WebSocket.OPEN) {
@@ -121,13 +129,20 @@
         document.getElementById('Username').addEventListener('submit', function(event) {
             event.preventDefault();
             const usernameField = document.getElementById('usernameField');
-            username = usernameField.value.trim();
-        
-            // Send username update command to WebSocket server
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send("set_username:" + username);
+            const newUsername = usernameField.value.trim();
+
+            if (newUsername !== '') {
+                const payload = {
+                    content: newUsername,
+                    message_type: MessageTypes.SetUsername
+                };
+
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify(payload));
+                }
             }
         });
+
         
         document.addEventListener('DOMContentLoaded', function() {
             var dropdownTrigger = document.querySelector('.dropdown-trigger');
