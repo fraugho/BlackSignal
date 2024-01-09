@@ -6,11 +6,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
     <link rel="stylesheet" type="text/css" href="static/login_page.css">
+    <link rel="icon" href="static/favicon.png" type="image/x-icon">
 </head>
 <body>
     <canvas id="canvas"></canvas>
     <form action="/login" method="post">
         <h2>Login</h2>
+
         <label for="username">Username:</label>
         <input type="text" id="username" name="username" required>
 
@@ -18,13 +20,9 @@
         <input type="password" id="password" name="password" required>
 
         <input type="submit" value="Login">
-        <a href="/create_login">create_login</a>
+        <a href="/create_login">Don't have an accoount?</a>
     </form>
-    <div id="error-message" style="color: red; display: none;">
-        Invalid credentials
-    </div>
 </body>
-
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         var form = document.querySelector("form");
@@ -58,9 +56,6 @@
             .then(data => {
                 if (!data.success) {
                     // Show error message with the server's message
-                    document.getElementById('error-message').textContent = data.message;
-                    document.getElementById('error-message').style.display = 'block';
-
                     // Change border color of input fields
                     changeInputBorderColor('red');
                 }
@@ -74,7 +69,6 @@
         }
     });
 </script>
-
 <script>
     document.getElementById('username').addEventListener('click', function() {
         this.style.borderColor = 'white'; // Changes the button's background color after it's clicked
@@ -83,8 +77,6 @@
         this.style.borderColor = 'white'; // Changes the button's background color after it's clicked
     });
 </script>
-
-
 <script>
     // JavaScript code goes here
     var s = window.screen;
