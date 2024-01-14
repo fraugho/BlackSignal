@@ -29,10 +29,12 @@
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script>
+        //sender id and username are the same
         var senderId = "";
-        var username = "None"; // Default username
+        var username = "";
+        var userMap = {};
 
-        var socket = new WebSocket("ws://192.168.0.155:8080/ws/");
+        var socket = new WebSocket("ws://127.0.0.1:8080/ws/");
 
         const MessageTypes = {
             SetUsername: "SetUsername",
@@ -56,12 +58,35 @@
             console.log(event.data)
             const message = JSON.parse(event.data);
 
+            // Handle user list message
+            if (message.message_type === "user_list") {
+                userMap = message.user_hashmap;
+            }
+
             // Handle initial setup message
             if (message.type === "init") {
                 // Set the UUID and username received from the server
-                senderId = message.user_id;
+                
+                //senderId = message.username;
+                senderId = message.uuid;
                 username = message.username;
                 return;
+            }
+
+            if (message.type === "update_username") {
+                const oldUsername = message.sender;
+                const newUsername = message.username;
+                retroactivelyChangeUsername(oldUsername, newUsername);
+                userMap[message.user_id] = message.username;
+
+                console.log("Sender ID:", senderId); // Current sender ID
+                console.log("Old Username:", oldUsername); // Username being changed
+                console.log("New Username:", newUsername); // New username
+
+                if (oldUsername === senderId) {
+                    //senderId = newUsername; // Update senderId if the current user changed their username
+                    username = newUsername;
+                }
             }
 
             // Check if there's a 'logout' command from the server
@@ -70,28 +95,47 @@
                 window.location.href = '/logout';
             }
 
-            const chatContainer = document.getElementById('chat-container');
-            const messageWrapper = document.createElement('div');
-            const usernameElement = document.createElement('div');
-            const messageElement = document.createElement('div');
+            if (message.message_type === "Basic") {
+                const chatContainer = document.getElementById('chat-container');
+                const messageWrapper = document.createElement('div');
+                const usernameElement = document.createElement('div');
+                const messageElement = document.createElement('div');
 
-            usernameElement.textContent = (message.username || "None") + ':';
-            usernameElement.classList.add('username');
-            messageElement.textContent = message.content;
+                usernameElement.textContent = (userMap[message.sender_id]) + ':';
+                usernameElement.classList.add('username');
+                messageElement.textContent = message.content;
 
-            messageWrapper.appendChild(usernameElement);
-            messageWrapper.appendChild(messageElement);
-            messageWrapper.classList.add('chat-message');
+                messageWrapper.appendChild(usernameElement);
+                messageWrapper.appendChild(messageElement);
+                messageWrapper.classList.add('chat-message');
 
-            if (message.sender_id === senderId) {
-                messageWrapper.classList.add('sent-message');
-            } else {
-                messageWrapper.classList.add('received-message');
+                if (message.sender_id === senderId) {
+                    messageWrapper.classList.add('sent-message');
+                } else {
+                    messageWrapper.classList.add('received-message');
+                }
+
+                chatContainer.appendChild(messageWrapper);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+
             }
+            console.log(message.message_type);
 
-            chatContainer.appendChild(messageWrapper);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            
         };
+
+        function retroactivelyChangeUsername(oldUsername, newUsername) {
+            const chatContainer = document.getElementById('chat-container');
+            const messages = chatContainer.getElementsByClassName('chat-message');
+
+            for (let message of messages) {
+                const usernameElement = message.getElementsByClassName('username')[0];
+                if (usernameElement && usernameElement.textContent.startsWith(oldUsername + ':')) {
+                    usernameElement.textContent = newUsername + ':';
+                }
+            }
+        }
 
         document.getElementById('Message').addEventListener('submit', function(event) {
             event.preventDefault();
@@ -105,8 +149,10 @@
             if (messageContent !== '') {
                 const payload = {
                     content: messageContent,
+                    username: senderId,
                     message_type: MessageTypes.Basic // Assuming 'Basic' is a valid message type for normal messages
                 };
+
 
                 if (socket.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify(payload));
@@ -133,9 +179,12 @@
 
             if (newUsername !== '') {
                 const payload = {
+                    username: senderId,
                     content: newUsername,
                     message_type: MessageTypes.SetUsername
                 };
+
+                //senderId = newUsername;
 
                 if (socket.readyState === WebSocket.OPEN) {
                     socket.send(JSON.stringify(payload));
