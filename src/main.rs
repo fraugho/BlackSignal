@@ -449,30 +449,6 @@ async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String, cu
     }
 }
 
-/*
-async fn check_and_update_username(db: Arc<Surreal<Client>>, current_username: String, new_username: String, actor_addr: Addr<WsActor>, state: Arc<AppState>) {
-    let query = format!("SELECT username FROM users WHERE username = '{}';", new_username);
-    if let Ok(mut response) = db.query(&query).await {
-        let x: Option<String> = response.take((0, "username")).expect("nah");
-
-        match x {
-            Some(_) => println!("Username already used"),
-            None =>  {
-                let update_query = format!("UPDATE users SET username = '{}' WHERE username = '{}';", new_username, current_username);
-                db.query(&update_query).await.expect("Failed to update database");
-                let message = UpdateUsernameMsg(new_username);
-                let serialized_msg = serde_json::to_string(&message).unwrap();
-                state.broadcast_message(serialized_msg, current_username, "nothing".to_string());
-                //actor_addr.do_send(UpdateUsernameMsg(new_username))}
-                
-        }
-    } else {
-        eprintln!("Failed to query database");
-    }
-}
-
-*/
-
 impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsActor {
     fn handle(&mut self, msg: std::result::Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         if let Ok(ws::Message::Text(text)) = msg {
@@ -586,149 +562,6 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
     }
 }
 
-/*
-impl Handler<WsMessage> for WsActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: WsMessage, ctx: &mut Self::Context) {
-        // Always send the message to the client, including the sender
-        ctx.text(msg.0);
-    }
-}
-
-impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsActor {
-    fn handle(&mut self, msg: std::result::Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
-        if let Ok(ws::Message::Text(text)) = msg {
-            match serde_json::from_str::<IncomingMessage>(&text) {                
-                Ok(incoming_message) => {
-                    if incoming_message.username == self.username {
-                        match incoming_message.message_type {
-                            MessageTypes::SetUsername =>  {
-                                let new_username = incoming_message.content;
-                                let username = self.username.clone();
-                                let state = self.state.clone();
-                                let db = self.state.db.clone();
-                                let arc_self = Arc::new(self);
-                                
-                                actix::spawn(async move{
-                                    // Use the cloned `username` for querying
-                                    let query = format!("SELECT username FROM users WHERE username = '{}';", username);
-                                    let mut response = db.query(&query).await.expect("Failed to query database");
-    
-                                    let username_query: Option<String> = response.take((0, "username")).expect("Failed to extract username");
-
-                                    match username_query {
-                                        Some(_) => {
-                                            println!("Username already used");
-                                        },
-                                        None => {
-                                            // Use `new_username` and `user_id` for the update
-                                            let update_query = format!("UPDATE users SET username = '{}' WHERE username = '{}';", new_username, username);
-                                            //arc_self.set_username(new_username);
-                                            actix::spawn(async move {
-                                                db.query(&update_query).await.expect("Failed to update database");
-                                            });
-                                        }
-                                    }
-                                });
-                                
-                            }
-                            MessageTypes::CreateRoom => {
-                                let room_id = Uuid::new_v4().to_string().replace('-', "");
-                                let room_name = incoming_message.content;
-                                let app_state = self.state.clone();
-                                
-    
-                                actix::spawn(async move {
-                                    let _ : Vec<Room> = app_state.db.create("rooms")
-                                        .content(Room {
-                                            name: room_name,
-                                            room_id,
-                                        })
-                                        .await.expect("bad");
-                                });
-                            }
-                            MessageTypes::AddToRoom => {
-                                let room_id = incoming_message.content.clone();
-                                let user_id = incoming_message.content;
-                                let app_state = self.state.clone();
-    
-                                actix::spawn(async move {
-                                    let query = format!{"UPDATE rooms SET subscribers += ['{}'] WHERE room_id = '{}';", user_id, room_id };
-                                    if let Err(e) = app_state.db.query(&query).await {
-                                        eprintln!("Error adding to room: {:?}", e);
-                                    }
-                                });
-                            }
-                            MessageTypes::ChangeRoom => {
-                                let room_id = incoming_message.content;
-                                let user_id = self.username.clone();
-                                let app_state = self.state.clone();
-                                actix::spawn(async move {
-                                    let query = format!(
-                                        "UPDATE connections SET state = {} WHERE id = '{}'",
-                                        user_id, room_id
-                                    );
-                                    if let Err(e) = app_state.db.query(&query).await {
-                                        eprintln!("Error adding to room: {:?}", e);
-                                    }
-                                });
-                            }
-                            MessageTypes::RemoveFromRoom => {}
-                            MessageTypes::Basic => {
-                                let content = incoming_message.content;
-            
-                                let app_state = self.state.clone();
-                                let sender_id = self.username.clone();
-                                let username =  self.username.clone();
-                                let room_id = self.rooms[0].clone();
-                                let now = Utc::now();
-                                let timestamp = now.timestamp() as u64;
-                                let unique_id = Uuid::new_v4().to_string().replace('-', "");
-                                // Create the message only once, reusing the variables directly
-                                let message = Message {
-                                    unique_id: unique_id.clone(),
-                                    username: username.clone(), 
-                                    content: content.clone(),
-                                    timestamp,
-                                    sender_id: sender_id.clone(),
-                                    room_id: room_id.clone(), 
-                                    message_type: MessageTypes::Basic,
-                                };
-                    
-                                actix::spawn(async move {
-            
-                                    let _: Option<Message> = app_state.db.create(("messages", unique_id.clone()))
-                                        .content(Message {
-                                            unique_id,
-                                            username,
-                                            content,
-                                            timestamp,
-                                            sender_id: sender_id.clone(),
-                                            room_id: room_id.clone(),
-                                            message_type: MessageTypes::Basic,
-                                        })
-                                        .await.expect("error sending_message");
-                    
-                                    let serialized_msg = serde_json::to_string(&message).unwrap();
-                                    app_state.broadcast_message(serialized_msg, sender_id, room_id).await;
-                                });
-                                },
-                            }
-                    } else {
-                        println!("No bueno");
-                        eprintln!("Invalid access");
-                    }
-                    
-                }
-
-                Err(e) => eprintln!("Error processing message: {:?}", e),
-            }
-        }
-    }
-}
-
-*/
 
 async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
@@ -739,25 +572,6 @@ async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web:
 
     match username_query {
         Some(username) => {
-
-            //works it updates connection_state to inactive where etczz
-            /*
-            let query = format!(
-                "UPDATE subscribers SET connection_state = 'Inactive' 
-                WHERE user_id = 'test@gmail.com' AND room_id = '{}';",
-                main_room_id
-            );
-
-            let update_query = format!(
-                "UPDATE connections SET subscribers += [{{
-                    connection_state: '{}',
-                    user_id: '{}'
-                }}] WHERE room_id = '{}';",
-                SubscriberState::Active, login_username, main_room_id
-            );
-
-            state.db.query(query).await.expect("bad");
-            */
 
             let ws_actor = WsActor {
                 user_id: uuid,
@@ -878,14 +692,6 @@ async fn login_action(state: web::Data<AppState>, form: web::Json<LoginForm>, se
         }
         None => HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
     }
-    /*
-    if state.authenticate_user(&login).await {
-        session.insert("key", login.username.clone()).unwrap();
-        HttpResponse::Found().append_header(("LOCATION", "/")).finish()
-    } else {
-        HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
-    }
-    */
 }
 
 #[get("/")]
