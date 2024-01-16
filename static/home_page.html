@@ -44,9 +44,7 @@
             Basic: "Basic"
         };
 
-        socket.onerror = function(event) {
-            console.error("WebSocket error observed:", event);
-        };
+
 
         socket.onclose = function(event) {
             if (!event.wasClean) {
@@ -70,6 +68,13 @@
                 //senderId = message.username;
                 senderId = message.uuid;
                 username = message.username;
+                return;
+            }
+
+            if (message.type === "new_user_joined") {
+                // Set the UUID and username received from the server
+
+                userMap[message.user_id] = message.username;
                 return;
             }
 

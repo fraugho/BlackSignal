@@ -10,6 +10,8 @@ pub struct UserData {
     pub login_username: String,
     pub username: String,
     pub hashed_password: String,
+    pub status: ConnectionState,
+    pub rooms: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -45,26 +47,17 @@ pub enum MessageTypes {
     Basic,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Subscriber {
-    pub user_id: String,
-    pub room_id: String,
-    pub connection_state: SubscriberState,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub enum SubscriberState {
-    Active,
-    Inactive,
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ConnectionState {
+    Online,
     Offline,
 }
 
-impl fmt::Display for SubscriberState {
+impl fmt::Display for ConnectionState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            SubscriberState::Active => write!(f, "Active"),
-            SubscriberState::Inactive => write!(f, "Inactive"),
-            SubscriberState::Offline => write!(f, "Offline"),
+            ConnectionState::Online => write!(f, "Offline"),
+            ConnectionState::Offline => write!(f, "Offline"),
         }
     }
 }
@@ -73,6 +66,7 @@ impl fmt::Display for SubscriberState {
 pub struct Room {
     pub name: String,
     pub room_id: String,
+    pub users: Vec<String>,
 }
 
 #[derive(Deserialize, Validate)]
@@ -88,3 +82,4 @@ pub struct User {
     pub uuid: String,
     pub username: String,
 }
+
