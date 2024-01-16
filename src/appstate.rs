@@ -22,28 +22,6 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn add_ws(&self, room_ids: Vec<String>, user_id: String, address: Addr<WsActor>) -> Result<()> {
-        //self.actor_registry.lock().unwrap().insert(user_id, address);
-        for room_id in room_ids {
-            todo!()
-        }
-
-        Ok(())
-    }
-    pub async fn remove_ws(&self, room_ids: Vec<String>, user_id: String) -> Result<()> {
-        for room_id in room_ids {
-            let query = format!(
-                "DELETE FROM connections WHERE user_id = {} RETURN BEFORE;",
-                user_id
-            );
-
-            //let connection:Option<Connection> = self.connections.delete((room_id, user_id)).await?;
-            self.db.query(&query).await?;
-        }
-
-        Ok(())
-    }
-
     pub async fn broadcast_message(&self, message: String, room_id: String) {
         // Querying connections to get a list of UUIDs
 
@@ -65,9 +43,10 @@ impl AppState {
 
     pub async fn catch_up(&self, room_id: &str) -> Result<Vec<UserMessage>> {
 
-        let sql = format!{"SELECT * FROM messages WHERE room_id = '{}' ORDER BY timestamp ASC", room_id};
+        let query = "SELECT * FROM messages WHERE room_id = $room_id ORDER BY timestamp ASC;";
     
-        let mut response = self.db.query(sql)
+        let mut response = self.db.query(query)
+            .bind(("room_id", room_id))
             .await?;
     
         let messages: Vec<UserMessage> = response.take(0)?;
@@ -75,22 +54,12 @@ impl AppState {
         Ok(messages)
     }  
 
-
-
-    pub async fn get_rooms(&self, user_id: &str) -> Result<Vec<String>> {
-        let sql = format! {"SELECT room_id FROM connections WHERE id = '{}'", user_id};
-    
-        let mut response = self.db.query(sql)
-            .await?;
-    
-        let rooms: Vec<String> = response.take(0)?;
-    
-        Ok(rooms)
-    }
-
     pub async fn authenticate_user(&self, login_data: &LoginForm) -> Option<String>{
-        let query = format!{"SELECT * FROM users WHERE login_username = '{}';", login_data.username};
-        let mut response = self.db.query(query).await.expect("aaaah");
+        let query = "SELECT * FROM users WHERE login_username = $login_username;";
+        let mut response = self.db
+            .query(query)
+            .bind(("login_username", login_data.username.clone()))
+            .await.expect("aaaah");
         let result: Option<UserData> = response.take(0).expect("cool");
         //let result: Option<UserData> = self.db.select(("logins", username)).await.expect("something");
         match result {
@@ -120,22 +89,6 @@ impl AppState {
             }
         }
         
-    }
-
-    pub fn set_username(mut user: WsActor, new_username: String) {
-        user.username = new_username;
-    }
-
-    // Register a new WebSocket actor
-    pub fn register(&self, id: String, addr: Addr<WsActor>) {
-        let mut actor_registry = self.actor_registry.lock().unwrap();
-        actor_registry.insert(id, addr);
-    }
-
-    // Unregister a WebSocket actor
-    pub fn unregister(&self, id: &str) {
-        let mut actor_registry = self.actor_registry.lock().unwrap();
-        actor_registry.remove(id);
     }
 
 }

@@ -38,21 +38,17 @@ pub async fn get_messages(app_state: Arc<AppState>,  actor_addr: Addr<WsActor>, 
 }
 
 pub async fn change_to_online(db: Arc<Surreal<Client>>, user_id: String) {
-    let query = format!(
-        "UPDATE users SET status = 'Online' WHERE uuid = '{}';",
-        user_id
-    );
-    println!("{}", query);
-    db.query(query).await.expect("something");
+    let query = "UPDATE users SET status = 'Online' WHERE uuid = $uuid;";
+    db.query(query)
+        .bind(("uuid", user_id))
+        .await.expect("Failed to update database");
 }
 
 pub async fn change_to_offline(db: Arc<Surreal<Client>>, user_id: String) {
-    let query = format!(
-        "UPDATE users SET status = 'Offline' WHERE uuid = '{}';",
-        user_id
-    );
-    println!("{}", query);
-    db.query(query).await.expect("something");
+    let query = "UPDATE users SET status = 'Offline' WHERE uuid = $uuid;";
+    db.query(query)
+        .bind(("uuid", user_id))
+        .await.expect("Failed to update database");
 }
 
 pub struct WsActor {
@@ -189,10 +185,11 @@ impl Handler<SendUsers> for WsActor {
 
 pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, room_id: String) {
 
-    let sql = format!{"SELECT uuid, username FROM users WHERE '{}' IN rooms;", room_id};
+    let query = "SELECT uuid, username FROM users WHERE $room_id IN rooms;";
 
-    let mut response = db.query(sql)
-        .await.expect("bad");
+    let mut response = db.query(query)
+        .bind(("room_id", room_id))
+        .await.expect("Failed to update database");
 
     let users: Vec<User> = response.take(0).expect("bad");
 
@@ -207,7 +204,7 @@ pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, roo
         user_hashmap: users_map,
         message_type: "user_list".to_string(),
     };
-    
+
     let serialized = serde_json::to_string(&send_user).unwrap();
 
     actor_addr.do_send(SendUsers(serialized));
@@ -215,15 +212,18 @@ pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, roo
 }
 
 pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String, current_username: String, new_username: String, actor_addr: Addr<WsActor>, state: Arc<AppState>) {
-    let query = format!("SELECT username FROM users WHERE username = '{}';", new_username);
-    if let Ok(mut response) = db.query(&query).await {
+    let query = "SELECT username FROM users WHERE username = $username;";
+    if let Ok(mut response) = db.query(query).bind(("username", new_username.clone())).await {
         let x: Option<String> = response.take((0, "username")).expect("nah");
 
         match x {
             Some(_) => println!("Username already used"),
             None =>  {
-                let update_query = format!("UPDATE users SET username = '{}' WHERE username = '{}';", new_username, current_username);
-                db.query(&update_query).await.expect("Failed to update database");
+                let query = "UPDATE users SET username = $new_username WHERE username = $username;";
+                db.query(query)
+                    .bind(("new_username", new_username.clone()))
+                    .bind(("username", current_username.clone()))
+                    .await.expect("Failed to update database");
                 //let message = UpdateUsernameMsg(new_username);
                 let message = json!({
                     "type": "update_username",
@@ -287,8 +287,12 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                 let app_state = self.state.clone();
     
                                 actix::spawn(async move {
-                                    let query = format!{"UPDATE rooms SET subscribers += ['{}'] WHERE room_id = '{}';", user_id, room_id };
-                                    if let Err(e) = app_state.db.query(&query).await {
+                                    //let query = format!{"UPDATE rooms SET subscribers += ['{}'] WHERE room_id = '{}';", user_id, room_id };
+                                    let query =  "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
+                                    if let Err(e) = app_state.db.query(query)
+                                        .bind(("user_id", user_id))
+                                        .bind(("room_id", room_id))
+                                        .await {
                                         eprintln!("Error adding to room: {:?}", e);
                                     }
                                 });
@@ -355,8 +359,10 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
 pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
     let uuid: String = session.get("key").unwrap().unwrap();
-    let query = format!{"SELECT * FROM users WHERE uuid = '{}';", uuid};
-    let mut response = state.db.query(query).await.expect("aaaah");
+    let query = "SELECT * FROM users WHERE uuid = $uuid;";
+    let mut response = state.db.query(query)
+        .bind(("uuid", uuid.clone()))
+        .await.expect("aaaah");
     let user_query: Option<UserData> = response.take(0).expect("cool");
 
     //adds actor to registory

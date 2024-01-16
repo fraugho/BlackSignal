@@ -75,8 +75,8 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
 
         state.join_main_room(username, user_id.clone()).await;
 
-        let query = format!{"UPDATE rooms SET users += ['{}'] WHERE room_id = '{}';", user_id, state.main_room_id.clone()};
-        if let Err(e) = state.db.query(&query).await {
+        let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
+        if let Err(e) = state.db.query(query).bind(("user_id", user_id.clone())).bind(("room_id", state.main_room_id.clone())).await {
             eprintln!("Error adding to room: {:?}", e);
         }
 
