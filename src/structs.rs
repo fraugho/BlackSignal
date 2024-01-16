@@ -6,7 +6,7 @@ use validator::Validate;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserData {
-    pub uuid: String,
+    pub user_id: String,
     pub login_username: String,
     pub username: String,
     pub hashed_password: String,
@@ -16,7 +16,7 @@ pub struct UserData {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct UserMessage {
-    pub unique_id: String,
+    pub message_id: String,
     pub content: String,
     pub sender_id: String,
     pub room_id: String,
@@ -79,7 +79,7 @@ pub struct LoginForm {
 
 #[derive(Deserialize)]
 pub struct User {
-    pub uuid: String,
+    pub user_id: String,
     pub username: String,
 }
 

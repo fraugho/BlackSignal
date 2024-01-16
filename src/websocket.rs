@@ -38,16 +38,16 @@ pub async fn get_messages(app_state: Arc<AppState>,  actor_addr: Addr<WsActor>, 
 }
 
 pub async fn change_to_online(db: Arc<Surreal<Client>>, user_id: String) {
-    let query = "UPDATE users SET status = 'Online' WHERE uuid = $uuid;";
+    let query = "UPDATE users SET status = 'Online' WHERE user_id = $user_id;";
     db.query(query)
-        .bind(("uuid", user_id))
+        .bind(("user_id", user_id))
         .await.expect("Failed to update database");
 }
 
 pub async fn change_to_offline(db: Arc<Surreal<Client>>, user_id: String) {
-    let query = "UPDATE users SET status = 'Offline' WHERE uuid = $uuid;";
+    let query = "UPDATE users SET status = 'Offline' WHERE user_id = $user_id;";
     db.query(query)
-        .bind(("uuid", user_id))
+        .bind(("user_id", user_id))
         .await.expect("Failed to update database");
 }
 
@@ -65,8 +65,8 @@ impl WsActor {
         self.username = new_username;
     }
 
-    async fn delete_message(&self, unique_id: String) -> Result<()> {
-        let _: Option<UserMessage> = self.state.db.delete(("messages", unique_id))
+    async fn delete_message(&self, message_id: String) -> Result<()> {
+        let _: Option<UserMessage> = self.state.db.delete(("messages", message_id))
             .await.expect("error sending_message");
 
         Ok(())
@@ -101,7 +101,7 @@ impl Actor for WsActor {
 
         let init_message = json!({
             "type": "init",
-            "uuid": self.user_id,
+            "user_id": self.user_id,
             "username": default_username,
         });
 
@@ -185,7 +185,7 @@ impl Handler<SendUsers> for WsActor {
 
 pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, room_id: String) {
 
-    let query = "SELECT uuid, username FROM users WHERE $room_id IN rooms;";
+    let query = "SELECT user_id, username FROM users WHERE $room_id IN rooms;";
 
     let mut response = db.query(query)
         .bind(("room_id", room_id))
@@ -196,7 +196,7 @@ pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, roo
     // Convert the vector of tuples into a hash map
     //let users_map: HashMap<String, String> = users.into_iter().collect();
     let users_map: HashMap<String, String> = users.into_iter()
-        .map(|user| (user.uuid, user.username))
+        .map(|user| (user.user_id, user.username))
         .collect();
 
 
@@ -314,10 +314,10 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                 let room_id = self.rooms[0].clone();
                                 let now = Utc::now();
                                 let timestamp = now.timestamp() as u64;
-                                let unique_id = Uuid::new_v4().to_string().replace('-', "");
+                                let message_id = Uuid::new_v4().to_string().replace('-', "");
                                 // Create the message only once, reusing the variables directly
                                 let message = UserMessage {
-                                    unique_id: unique_id.clone(),
+                                    message_id: message_id.clone(),
                                     content: content.clone(),
                                     timestamp,
                                     sender_id: sender_id.clone(),
@@ -327,9 +327,9 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                     
                                 actix::spawn(async move {
             
-                                    let _: Option<UserMessage> = app_state.db.create(("messages", unique_id.clone()))
+                                    let _: Option<UserMessage> = app_state.db.create(("messages", message_id.clone()))
                                         .content(UserMessage {
-                                            unique_id,
+                                            message_id,
                                             content,
                                             timestamp,
                                             sender_id: sender_id.clone(),
@@ -358,10 +358,10 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
 
 pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
-    let uuid: String = session.get("key").unwrap().unwrap();
-    let query = "SELECT * FROM users WHERE uuid = $uuid;";
+    let user_id: String = session.get("key").unwrap().unwrap();
+    let query = "SELECT * FROM users WHERE user_id = $user_id;";
     let mut response = state.db.query(query)
-        .bind(("uuid", uuid.clone()))
+        .bind(("user_id", user_id.clone()))
         .await.expect("aaaah");
     let user_query: Option<UserData> = response.take(0).expect("cool");
 
@@ -372,7 +372,7 @@ pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: 
         Some(user) => {
 
             let ws_actor = WsActor {
-                user_id: uuid,
+                user_id,
                 ws_id: Uuid::new_v4().to_string().replace('-', ""),
                 username: user.username,
                 current_room: main_room_id.clone(),
