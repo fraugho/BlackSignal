@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use validator::Validate;
 
+use serde_json::json;
+
 use crate::structs::{Room, UserMessage, UserData, LoginForm};  
 use crate::websocket::{WsActor, WsMessage}; 
 
@@ -42,16 +44,28 @@ impl AppState {
         Ok(())
     }
 
-    pub async fn broadcast_message(&self, message: String, sender_id: String, room_id: String) {
+    pub async fn broadcast_message(&self, message: String, room_id: String) {
         // Querying connections to get a list of UUIDs
+
+
         for client in self.actor_registry.lock().unwrap().values(){
-            client.do_send(WsMessage(message.clone(), sender_id.clone()));
+            client.do_send(WsMessage(message.clone()));
         }
+    }
+
+    pub async fn join_main_room(&self, username: String, user_id :String){
+        let message = json!({
+            "type": "new_user_joined",
+            "username": username,
+            "user_id": user_id,
+        });
+        let serialized_msg = serde_json::to_string(&message).unwrap();
+        self.broadcast_message(serialized_msg, self.main_room_id.clone()).await;
     }
 
     pub async fn catch_up(&self, room_id: &str) -> Result<Vec<UserMessage>> {
 
-        let sql = r#"SELECT * FROM messages ORDER BY timestamp ASC"#;
+        let sql = format!{"SELECT * FROM messages WHERE room_id = '{}' ORDER BY timestamp ASC", room_id};
     
         let mut response = self.db.query(sql)
             .await?;

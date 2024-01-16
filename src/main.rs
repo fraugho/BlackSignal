@@ -22,7 +22,7 @@ mod structs;
 mod websocket;
 
 use appstate::AppState;
-use structs::{Subscriber, Room, SubscriberState, LoginForm, UserData};
+use structs::{Room, ConnectionState, LoginForm, UserData};
 use websocket::ws_index;
 //use anyhow::Result;
 
@@ -60,24 +60,25 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
         let mut generator = Generator::with_naming(Name::Numbered);
         let hashed_password = hash(login.password.clone(), DEFAULT_COST).unwrap();
         
-        
-        let subscriber = Subscriber {
-            room_id: state.main_room_id.clone(),
-            user_id: login.username.clone(),
-            connection_state: SubscriberState::Active,
-        };
-        let _ : Vec<Subscriber> = state.db.create("subscribers")
-            .content(subscriber)
-            .await.expect("bad");
 
         let user_id = Uuid::new_v4().to_string().replace('-', "");
+        let username = generator.next().unwrap().replace('-', "");
         let _: Vec<UserData> = state.db.create("users").content(
             UserData {
                 uuid: user_id.clone(),
                 login_username: login.username.clone(),
-                username: generator.next().unwrap().replace('-', ""),
+                username: username.clone(),
                 hashed_password,
+                status: ConnectionState::Online,
+                rooms: vec![state.main_room_id.clone()],
             }).await.expect("shit");
+
+        state.join_main_room(username, user_id.clone()).await;
+
+        let query = format!{"UPDATE rooms SET users += ['{}'] WHERE room_id = '{}';", user_id, state.main_room_id.clone()};
+        if let Err(e) = state.db.query(&query).await {
+            eprintln!("Error adding to room: {:?}", e);
+        }
 
         session.insert("key", user_id).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
@@ -151,33 +152,29 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
+
+    let main_room_id = Uuid::new_v4().to_string().replace('-', "");
+    let uuid = Uuid::new_v4().to_string().replace('-', "");
     let test: Option<UserData> = db.create(("users", "test"))
         .content(UserData {
-            uuid: Uuid::new_v4().to_string().replace('-', ""),
+            uuid: uuid.clone(),
             login_username: "test@gmail.com".to_string(),
             username: "test".to_string(),
             hashed_password,
+            status: ConnectionState::Online,
+            rooms: vec![main_room_id.clone()],
 
         }).await.expect("hahahah");
+    
 
     
 
-    let main_room_id = Uuid::new_v4().to_string().replace('-', "");
-
-    let subscriber = Subscriber {
-        room_id: main_room_id.clone(),
-        user_id: "test@gmail.com".to_string(),
-        connection_state: SubscriberState::Active,
-    };
-
-    let _ : Vec<Subscriber> = db.create("subscribers")
-        .content(subscriber)
-        .await.expect("bad");
-
+    let users = vec![uuid];
     let _ : Vec<Room> = db.create("rooms")
         .content(Room {
             name: "main".to_string(),
             room_id: main_room_id.clone(),
+            users,
         })
         .await.expect("bad");
                             

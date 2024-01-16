@@ -19,7 +19,41 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::appstate::AppState; 
-use crate::structs::{UserMessage, MessageTypes, Room, IncomingMessage, User};
+use crate::structs::{UserMessage, MessageTypes, Room, IncomingMessage, User, UserData};
+
+pub async fn get_messages(app_state: Arc<AppState>,  actor_addr: Addr<WsActor>, room_id: String) {
+    match app_state.catch_up(&room_id).await {
+        Ok(messages) => {
+            for message in messages {
+
+                let serialized_msg = serde_json::to_string(&message).unwrap();
+                
+                actor_addr.do_send(WsMessage(serialized_msg));
+            }
+        }
+        Err(e) => {
+            eprintln!("Error catching up messages: {:?}", e);
+        }
+    }
+}
+
+pub async fn change_to_online(db: Arc<Surreal<Client>>, user_id: String) {
+    let query = format!(
+        "UPDATE users SET status = 'Online' WHERE uuid = '{}';",
+        user_id
+    );
+    println!("{}", query);
+    db.query(query).await.expect("something");
+}
+
+pub async fn change_to_offline(db: Arc<Surreal<Client>>, user_id: String) {
+    let query = format!(
+        "UPDATE users SET status = 'Offline' WHERE uuid = '{}';",
+        user_id
+    );
+    println!("{}", query);
+    db.query(query).await.expect("something");
+}
 
 pub struct WsActor {
     pub ws_id: String,
@@ -56,17 +90,18 @@ impl Actor for WsActor {
         let app_state = self.state.clone();
         let room_id = self.current_room.clone();
         let actor_addr = ctx.address();
-        let ws_id = self.ws_id.clone();
+        //let ws_id = self.ws_id.clone();
         let default_username = self.username.clone();
-        let room_ids = self.rooms.clone();
-        let connections = self.state.db.clone();
+        let user_id = self.user_id.clone();
+        //let room_ids = self.rooms.clone();
+        //let connections = self.state.db.clone();
 
         let actor_addr_clone = actor_addr.clone();
         let actor_addr_clone2 = actor_addr.clone();
         let db = self.state.db.clone();
 
 
-        ctx.spawn(actix::fut::wrap_future(get_users(db, actor_addr_clone2)));
+        ctx.spawn(actix::fut::wrap_future(get_users(db.clone(), actor_addr_clone, room_id.clone())));
 
         let init_message = json!({
             "type": "init",
@@ -76,49 +111,25 @@ impl Actor for WsActor {
 
         ctx.text(init_message.to_string());
 
-        actix::spawn(async move {
-
-            match app_state.catch_up(&room_id).await {
-                Ok(messages) => {
-                    for message in messages {
-
-                        let serialized_msg = serde_json::to_string(&message).unwrap();
-                        
-                        actor_addr_clone.do_send(WsMessage(serialized_msg, room_id.clone()));
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Error catching up messages: {:?}", e);
-                }
-            }
-
-        });
+        ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr_clone2, room_id)));
+        ctx.spawn(actix::fut::wrap_future(change_to_online(db, user_id)));
     }
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
 
-        let user_id = self.username.to_string();
-        let room_ids = self.rooms.clone();
+        let user_id = self.user_id.clone();
 
         let db = self.state.db.clone();
 
-        actix::spawn(async move {
-            for room_id in room_ids {
-                //let connection:Option<Connection> = connections.delete(("connections", string_user_id.clone())).await.expect("OOOH");
-                let query = format!(
-                    "UPDATE subscribers SET connection_state = 'Inactive' 
-                    WHERE user_id = '{}' AND room_id = '{}';",
-                    user_id, room_id
-                );
-                eprintln!("{}", query);
-                db.query(query).await.expect("something");
+        //ctx.spawn(actix::fut::wrap_future(change_to_offline(db, user_id)));
 
-            }
+        actix::spawn(async move {
+            change_to_offline(db, user_id).await
         });
     }
 }
 
-pub struct WsMessage(pub String, pub String);
+pub struct WsMessage(pub String);
 
 impl actix::Message for WsMessage {
     type Result = ();
@@ -176,11 +187,9 @@ impl Handler<SendUsers> for WsActor {
     }
 }
 
+pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, room_id: String) {
 
-
-pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>) {
-
-    let sql = r#"SELECT uuid, username FROM users"#;
+    let sql = format!{"SELECT uuid, username FROM users WHERE '{}' IN rooms;", room_id};
 
     let mut response = db.query(sql)
         .await.expect("bad");
@@ -198,7 +207,7 @@ pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>) {
         user_hashmap: users_map,
         message_type: "user_list".to_string(),
     };
-
+    
     let serialized = serde_json::to_string(&send_user).unwrap();
 
     actor_addr.do_send(SendUsers(serialized));
@@ -223,7 +232,7 @@ pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String
                     "user_id": user_id,
                 });
                 let serialized_msg = serde_json::to_string(&message).unwrap();
-                state.broadcast_message(serialized_msg, current_username, "nothing".to_string()).await;
+                state.broadcast_message(serialized_msg, state.main_room_id.clone()).await;
                 actor_addr.do_send(UpdateUsernameMsg(new_username));
             }
                 
@@ -256,6 +265,10 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                 let room_id = Uuid::new_v4().to_string().replace('-', "");
                                 let room_name = incoming_message.content;
                                 let app_state = self.state.clone();
+
+                                self.rooms.push(room_id.clone());
+
+                                let users = vec![self.user_id.clone()];
                                 
     
                                 actix::spawn(async move {
@@ -263,6 +276,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                         .content(Room {
                                             name: room_name,
                                             room_id,
+                                            users,
                                         })
                                         .await.expect("bad");
                                 });
@@ -283,15 +297,9 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                 let room_id = incoming_message.content;
                                 let user_id = self.username.clone();
                                 let app_state = self.state.clone();
-                                actix::spawn(async move {
-                                    let query = format!(
-                                        "UPDATE connections SET state = {} WHERE id = '{}'",
-                                        user_id, room_id
-                                    );
-                                    if let Err(e) = app_state.db.query(&query).await {
-                                        eprintln!("Error adding to room: {:?}", e);
-                                    }
-                                });
+                                let actor_addr = ctx.address().clone();
+
+                                ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr, room_id)));
                             }
                             MessageTypes::RemoveFromRoom => {}
                             MessageTypes::Basic => {
@@ -327,7 +335,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                         .await.expect("error sending_message");
                     
                                     let serialized_msg = serde_json::to_string(&message).unwrap();
-                                    app_state.broadcast_message(serialized_msg, sender_id, room_id).await;
+                                    app_state.broadcast_message(serialized_msg, room_id).await;
                                 });
                                 },
                             }
@@ -347,19 +355,22 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
 pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
     let uuid: String = session.get("key").unwrap().unwrap();
-    let query = format!{"SELECT username FROM users WHERE uuid = '{}';", uuid};
+    let query = format!{"SELECT * FROM users WHERE uuid = '{}';", uuid};
     let mut response = state.db.query(query).await.expect("aaaah");
-    let username_query: Option<String> = response.take((0, "username")).expect("cool");
+    let user_query: Option<UserData> = response.take(0).expect("cool");
 
-    match username_query {
-        Some(username) => {
+    //adds actor to registory
+    
+
+    match user_query {
+        Some(user) => {
 
             let ws_actor = WsActor {
                 user_id: uuid,
                 ws_id: Uuid::new_v4().to_string().replace('-', ""),
-                username,
+                username: user.username,
                 current_room: main_room_id.clone(),
-                rooms: vec![main_room_id],
+                rooms: user.rooms,
                 state: state.into_inner().clone(),
             };
         
