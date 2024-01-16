@@ -66,7 +66,7 @@
                 // Set the UUID and username received from the server
                 
                 //senderId = message.username;
-                senderId = message.uuid;
+                senderId = message.user_id;
                 username = message.username;
                 return;
             }
@@ -124,10 +124,7 @@
                 chatContainer.scrollTop = chatContainer.scrollHeight;
 
             }
-            console.log(message.message_type);
-
-
-            
+            console.log(message.message_type); 
         };
 
         function retroactivelyChangeUsername(oldUsername, newUsername) {

@@ -65,7 +65,7 @@ impl AppState {
         match result {
             Some(user_data) => {
                 if bcrypt::verify(login_data.password.clone(), &user_data.hashed_password).unwrap_or(false) {
-                    Some(user_data.uuid)
+                    Some(user_data.user_id)
                 } else {
                     None
                 }
@@ -84,7 +84,7 @@ impl AppState {
                 false
             },
             None => {
-                eprintln!("validate: {}", signup_data.validate().is_ok());
+                //eprintln!("validate: {}", signup_data.validate().is_ok());
                 signup_data.validate().is_ok()
             }
         }

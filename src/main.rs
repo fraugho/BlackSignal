@@ -65,7 +65,7 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
         let username = generator.next().unwrap().replace('-', "");
         let _: Vec<UserData> = state.db.create("users").content(
             UserData {
-                uuid: user_id.clone(),
+                user_id: user_id.clone(),
                 login_username: login.username.clone(),
                 username: username.clone(),
                 hashed_password,
@@ -154,10 +154,10 @@ async fn main() -> std::io::Result<()> {
 
 
     let main_room_id = Uuid::new_v4().to_string().replace('-', "");
-    let uuid = Uuid::new_v4().to_string().replace('-', "");
+    let user_id = Uuid::new_v4().to_string().replace('-', "");
     let test: Option<UserData> = db.create(("users", "test"))
         .content(UserData {
-            uuid: uuid.clone(),
+            user_id: user_id.clone(),
             login_username: "test@gmail.com".to_string(),
             username: "test".to_string(),
             hashed_password,
@@ -169,7 +169,7 @@ async fn main() -> std::io::Result<()> {
 
     
 
-    let users = vec![uuid];
+    let users = vec![user_id];
     let _ : Vec<Room> = db.create("rooms")
         .content(Room {
             name: "main".to_string(),
