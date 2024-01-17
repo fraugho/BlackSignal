@@ -1,5 +1,6 @@
 use actix::{Addr};
 
+use surrealdb::opt::IntoResource;
 use surrealdb::{Result, Surreal};
 use surrealdb::engine::remote::ws::Client;
 
@@ -11,24 +12,39 @@ use validator::Validate;
 
 use serde_json::json;
 
-use crate::structs::{Room, UserMessage, UserData, LoginForm};  
+use crate::structs::{Room, UserMessage, UserData, LoginForm, RoomUsers};  
 use crate::websocket::{WsActor, WsMessage}; 
 
 pub struct AppState {
     pub db: Arc<Surreal<Client>>,
     pub channels: Arc<Mutex<HashMap<String, Room>>>,
-    pub actor_registry: Arc<Mutex<HashMap<String, Addr<WsActor>>>>,
+    pub actor_registry: Arc<Mutex<HashMap<String, Vec<Addr<WsActor>>>>>,
+    //pub actor_registry: Arc<Mutex<HashMap<String, Addr<WsActor>>>>,
     pub main_room_id: String,
 }
 
 impl AppState {
     pub async fn broadcast_message(&self, message: String, room_id: String) {
         // Querying connections to get a list of UUIDs
-
-
-        for client in self.actor_registry.lock().unwrap().values(){
-            client.do_send(WsMessage(message.clone()));
+        let query = "SELECT * FROM rooms WHERE room_id = $room_id;";
+        println!("room_id: {}", room_id);
+        println!("{}", query);
+        let mut response = self.db.query(query)
+            .bind(("room_id", room_id))
+            .await.expect("bad");
+        let rooms: Vec<Room> = response.take(0).expect("hey");
+        let actor_registry = self.actor_registry.lock().unwrap();
+        
+        for room in rooms{
+            for user in &room.users {
+                if let Some(clients) = actor_registry.get(user) {
+                    for client in clients {
+                        client.do_send(WsMessage(message.clone())); // Consider optimizing this cloning
+                    }
+                }
+            }
         }
+        
     }
 
     pub async fn join_main_room(&self, username: String, user_id :String){
@@ -45,7 +61,7 @@ impl AppState {
 
         let query = "SELECT * FROM messages WHERE room_id = $room_id ORDER BY timestamp ASC;";
     
-        let mut response = self.db.query(query)
+        let mut response = self.db.query(query).bind(("room_id", room_id))
             .bind(("room_id", room_id))
             .await?;
     

@@ -61,10 +61,6 @@ pub struct WsActor {
 }
 
 impl WsActor {
-    fn set_username(&mut self, new_username: String) {
-        self.username = new_username;
-    }
-
     async fn delete_message(&self, message_id: String) -> Result<()> {
         let _: Option<UserMessage> = self.state.db.delete(("messages", message_id))
             .await.expect("error sending_message");
@@ -81,8 +77,39 @@ impl Actor for WsActor {
 
 
         //registers ws actor
-        self.state.actor_registry.lock().unwrap().insert(self.ws_id.clone(), ctx.address());
+        let mut actor_registry= self.state.actor_registry.lock().unwrap();
 
+        match actor_registry.get(&self.user_id.clone()) {
+            Some(vec) => {
+                let mut current_vec = vec.clone();
+                current_vec.push(ctx.address());
+                actor_registry.insert(self.user_id.clone(), current_vec);
+            }, 
+            None => {
+                actor_registry.insert(self.user_id.clone(), vec![ctx.address()]);},
+        }
+        /*
+        match self.state.actor_registry.lock().unwrap().get(&self.user_id.clone()) {
+            Some(vec) => {
+                println!("SOme");
+                let mut current_vec = vec.clone();
+                current_vec.push(ctx.address());
+                self.state.actor_registry.lock().unwrap().insert(self.user_id.clone(), current_vec);
+            }, 
+            None => {
+                println!("None");
+                self.state.actor_registry.lock().unwrap().insert(self.user_id.clone(), vec![ctx.address()]);},
+        }
+         */
+        /*
+        if !self.state.actor_registry.lock().unwrap().contains_key(&self.user_id.clone()) {
+            self.state.actor_registry.lock().unwrap().insert(self.ws_id.clone(), vec![ctx.address()]);
+        } else{
+            let current_vec = self.state.actor_registry.lock().unwrap().get(self.user_id.clone());
+        }
+        
+        self.state.actor_registry.lock().unwrap().insert(self.ws_id.clone(), ctx.address());
+        */
         let app_state = self.state.clone();
         let room_id = self.current_room.clone();
         let actor_addr = ctx.address();
