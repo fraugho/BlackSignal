@@ -83,3 +83,8 @@ pub struct User {
     pub username: String,
 }
 
+
+#[derive(Deserialize)]
+pub struct RoomUsers {
+    pub users: Vec<String>,
+}

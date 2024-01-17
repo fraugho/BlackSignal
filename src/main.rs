@@ -177,7 +177,7 @@ async fn main() -> std::io::Result<()> {
             users,
         })
         .await.expect("bad");
-                            
+       
 
     let app_state = web::Data::new(AppState {
         db: Arc::new(db),
