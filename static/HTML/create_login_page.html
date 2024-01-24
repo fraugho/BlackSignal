@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-    <link rel="stylesheet" type="text/css" href="static/login_page.css">
-    <link rel="icon" href="static/favicon.png" type="image/x-icon">
+    <title>Create Login</title>
+    <link rel="stylesheet" type="text/css" href="static/CSS/login_page.css">
+    <link rel="icon" href="static/Elements/favicon.png" type="image/x-icon">
 </head>
 <body>
     <canvas id="canvas"></canvas>
-    <form action="/login" method="post">
-        <h2>Login</h2>
+    <form action="/create_login" method="post">
+        <h2>Create Account</h2>
 
         <label for="username">Username:</label>
         <input type="text" id="username" name="username" required>
@@ -20,9 +20,11 @@
         <input type="password" id="password" name="password" required>
 
         <input type="submit" value="Login">
-        <a href="/create_login">Don't have an accoount?</a>
+        <a href="/login">Already have an account?</a>
     </form>
 </body>
+
+
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         var form = document.querySelector("form");
@@ -34,7 +36,7 @@
                 password: document.getElementById('password').value
             };
 
-            fetch('/login', {
+            fetch('/create_login', {
                 method: 'post',
                 headers: {
                     'Content-Type': 'application/json'
@@ -55,7 +57,7 @@
             })
             .then(data => {
                 if (!data.success) {
-                    // Show error message with the server's message
+
                     // Change border color of input fields
                     changeInputBorderColor('red');
                 }
@@ -69,6 +71,7 @@
         }
     });
 </script>
+
 <script>
     document.getElementById('username').addEventListener('click', function() {
         this.style.borderColor = 'white'; // Changes the button's background color after it's clicked
@@ -77,25 +80,6 @@
         this.style.borderColor = 'white'; // Changes the button's background color after it's clicked
     });
 </script>
-<script>
-    // JavaScript code goes here
-    var s = window.screen;
-    var q = document.getElementById('canvas');
-    var width = q.width = s.width;
-    var height = q.height = s.height;
-    var letters = Array(256).join(1).split('');
 
-    var draw = function () {
-        q.getContext('2d').fillStyle = 'rgba(0,0,0,.05)';
-        q.getContext('2d').fillRect(0, 0, width, height);
-        q.getContext('2d').fillStyle = '#ffffff';
-        letters.map(function (y_pos, index) {
-            text = String.fromCharCode(3e4 + Math.random() * 33);
-            x_pos = index * 10;
-            q.getContext('2d').fillText(text, x_pos, y_pos);
-            letters[index] = (y_pos > 758 + Math.random() * 1e4) ? 0 : y_pos + 10;
-        });
-    };
-    setInterval(draw, 33);
-</script>
+<script src="/static/JS/matrix.js"></script>
 </html>

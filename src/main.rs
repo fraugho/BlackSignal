@@ -42,7 +42,7 @@ async fn logout(session: Session) -> impl Responder {
 
 #[get("/create_login")]
 async fn create_login_page() -> impl Responder {
-    let path = "static/create_login_page.html";
+    let path = "static/HTML/create_login_page.html";
     match read_to_string(path) {
         Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
         Err(err) => {
@@ -76,6 +76,7 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
 
         state.join_main_room(username.clone(), user_id.clone()).await;
         
+        //let query = "UPDATE rooms SET users += [$user_id] WHERE room_id = $room_id;", person, room_id };
         let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
         if let Err(e) = state.db.query(query).bind(("user_id", user_id.clone())).bind(("room_id", state.main_room_id.clone())).await {
             eprintln!("Error adding to room: {:?}", e);
@@ -98,7 +99,7 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
 
 #[get("/login")]
 async fn login_page() -> impl Responder {
-    let path = "static/login_page.html";
+    let path = "static/HTML/login_page.html";
     match read_to_string(path) {
         Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
         Err(err) => {
@@ -128,7 +129,7 @@ async fn home_page(session: Session) -> impl Responder {
     match val {
         //some user_id
         Some(_) => {
-            let path = "static/home_page.html";
+            let path = "static/HTML/home_page.html";
             match read_to_string(path) {
                 Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
                 Err(err) => {
@@ -201,6 +202,7 @@ async fn main() -> std::io::Result<()> {
         channels: Arc::new(Mutex::new(HashMap::new())),
         main_room_id,
         actor_registry: Arc::new(Mutex::new(HashMap::new())),
+        //room_registry: Arc::new(Mutex::new(room_registry)),
     });
 
     HttpServer::new(move || {
