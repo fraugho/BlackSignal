@@ -4,6 +4,8 @@ use std::fmt;
 
 use validator::Validate;
 
+use std::collections::HashSet;
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UserData {
     pub user_id: String,
@@ -66,7 +68,7 @@ impl fmt::Display for ConnectionState {
 pub struct Room {
     pub name: String,
     pub room_id: String,
-    pub users: Vec<String>,
+    pub users: HashSet<String>,
 }
 
 #[derive(Deserialize, Validate)]

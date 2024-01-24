@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 use chrono::Utc;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
 use std::sync::Arc;
 
 use serde_json::json;
@@ -69,6 +70,16 @@ impl WsActor {
     }
 }
 
+pub async fn add_user_to_room(user_id: String, room_id: String, db: Arc<Surreal<Client>>) {
+    let query =  "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
+        if let Err(e) = db.query(query)
+            .bind(("user_id", user_id))
+            .bind(("room_id", room_id))
+            .await {
+            eprintln!("Error adding to room: {:?}", e);
+    }
+}
+
 
 impl Actor for WsActor {
     type Context = ws::WebsocketContext<Self>;
@@ -78,50 +89,28 @@ impl Actor for WsActor {
 
         //registers ws actor
         let mut actor_registry= self.state.actor_registry.lock().unwrap();
+        let db = self.state.db.clone();
 
-        match actor_registry.get(&self.user_id.clone()) {
-            Some(vec) => {
-                let mut current_vec = vec.clone();
-                current_vec.push(ctx.address());
-                actor_registry.insert(self.user_id.clone(), current_vec);
+
+        match actor_registry.get_mut(&self.user_id.clone()) {
+            Some(hashmap) => {
+                hashmap.insert(self.ws_id.clone(), ctx.address());
             }, 
             None => {
-                actor_registry.insert(self.user_id.clone(), vec![ctx.address()]);},
+                let mut hashmap: HashMap<String, Addr<WsActor>> = HashMap::new();
+                hashmap.insert(self.ws_id.clone(), ctx.address());
+                actor_registry.insert(self.user_id.clone(), hashmap);},
         }
-        /*
-        match self.state.actor_registry.lock().unwrap().get(&self.user_id.clone()) {
-            Some(vec) => {
-                println!("SOme");
-                let mut current_vec = vec.clone();
-                current_vec.push(ctx.address());
-                self.state.actor_registry.lock().unwrap().insert(self.user_id.clone(), current_vec);
-            }, 
-            None => {
-                println!("None");
-                self.state.actor_registry.lock().unwrap().insert(self.user_id.clone(), vec![ctx.address()]);},
-        }
-         */
-        /*
-        if !self.state.actor_registry.lock().unwrap().contains_key(&self.user_id.clone()) {
-            self.state.actor_registry.lock().unwrap().insert(self.ws_id.clone(), vec![ctx.address()]);
-        } else{
-            let current_vec = self.state.actor_registry.lock().unwrap().get(self.user_id.clone());
-        }
-        
-        self.state.actor_registry.lock().unwrap().insert(self.ws_id.clone(), ctx.address());
-        */
         let app_state = self.state.clone();
         let room_id = self.current_room.clone();
         let actor_addr = ctx.address();
-        //let ws_id = self.ws_id.clone();
+
         let default_username = self.username.clone();
         let user_id = self.user_id.clone();
-        //let room_ids = self.rooms.clone();
-        //let connections = self.state.db.clone();
 
         let actor_addr_clone = actor_addr.clone();
         let actor_addr_clone2 = actor_addr.clone();
-        let db = self.state.db.clone();
+        
 
 
         ctx.spawn(actix::fut::wrap_future(get_users(db.clone(), actor_addr_clone, room_id.clone())));
@@ -144,7 +133,12 @@ impl Actor for WsActor {
 
         let db = self.state.db.clone();
 
-        //ctx.spawn(actix::fut::wrap_future(change_to_offline(db, user_id)));
+        let mut actor_registry = self.state.actor_registry.lock().unwrap();
+        if let Some(hashmap) = actor_registry.get_mut(&self.user_id.clone()) {
+            hashmap.remove(&self.ws_id.clone());
+            println!("Reomve: {}", hashmap.capacity());
+            println!("HEYYYYYYYY");
+        }
 
         actix::spawn(async move {
             change_to_offline(db, user_id).await
@@ -220,8 +214,6 @@ pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, roo
 
     let users: Vec<User> = response.take(0).expect("bad");
 
-    // Convert the vector of tuples into a hash map
-    //let users_map: HashMap<String, String> = users.into_iter().collect();
     let users_map: HashMap<String, String> = users.into_iter()
         .map(|user| (user.user_id, user.username))
         .collect();
@@ -259,7 +251,7 @@ pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String
                     "user_id": user_id,
                 });
                 let serialized_msg = serde_json::to_string(&message).unwrap();
-                state.broadcast_message(serialized_msg, state.main_room_id.clone()).await;
+                state.broadcast_message(serialized_msg, state.main_room_id.clone(), user_id.clone()).await;
                 actor_addr.do_send(UpdateUsernameMsg(new_username));
             }
                 
@@ -295,7 +287,8 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
 
                                 self.rooms.push(room_id.clone());
 
-                                let users = vec![self.user_id.clone()];
+                                let mut users = HashSet::new();
+                                users.insert(self.user_id.clone());
                                 
     
                                 actix::spawn(async move {
@@ -314,7 +307,6 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                 let app_state = self.state.clone();
     
                                 actix::spawn(async move {
-                                    //let query = format!{"UPDATE rooms SET subscribers += ['{}'] WHERE room_id = '{}';", user_id, room_id };
                                     let query =  "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
                                     if let Err(e) = app_state.db.query(query)
                                         .bind(("user_id", user_id))
@@ -366,7 +358,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                         .await.expect("error sending_message");
                     
                                     let serialized_msg = serde_json::to_string(&message).unwrap();
-                                    app_state.broadcast_message(serialized_msg, room_id).await;
+                                    app_state.broadcast_message(serialized_msg, room_id, sender_id.clone()).await;
                                 });
                                 },
                             }

@@ -5,13 +5,14 @@ use names::{Generator, Name};
 
 use bcrypt::{hash, DEFAULT_COST};
 
+use surrealdb::opt::IntoExportDestination;
 use surrealdb::Surreal;
 use surrealdb::opt::auth::Root;
 use surrealdb::engine::remote::ws::Ws;
 
 use uuid::Uuid;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::fs::read_to_string;
 
@@ -73,12 +74,20 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
                 rooms: vec![state.main_room_id.clone()],
             }).await.expect("shit");
 
-        state.join_main_room(username, user_id.clone()).await;
-
+        state.join_main_room(username.clone(), user_id.clone()).await;
+        
         let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
         if let Err(e) = state.db.query(query).bind(("user_id", user_id.clone())).bind(("room_id", state.main_room_id.clone())).await {
             eprintln!("Error adding to room: {:?}", e);
         }
+
+        let message = json!({
+            "type": "new_user_joined",
+            "user_id": user_id,
+            "username": username,
+        });
+
+        state.broadcast_message(message.to_string(), state.main_room_id.clone(), user_id.clone()).await;
 
         session.insert("key", user_id).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
@@ -167,9 +176,10 @@ async fn main() -> std::io::Result<()> {
         }).await.expect("hahahah");
     
 
-    
+    let mut users = HashSet::new();
+    users.insert(user_id.clone());
 
-    let users = vec![user_id];
+    //let users = vec![user_id];
     let _ : Vec<Room> = db.create("rooms")
         .content(Room {
             name: "main".to_string(),
@@ -178,6 +188,13 @@ async fn main() -> std::io::Result<()> {
         })
         .await.expect("bad");
        
+
+    let rooms: Vec<Room> = db.select("rooms").await.expect("eh");
+
+    let room_registry = rooms
+        .into_iter().map(|room| (room.room_id.clone(), room))
+        .collect::<HashMap<String, Room>>();
+
 
     let app_state = web::Data::new(AppState {
         db: Arc::new(db),
