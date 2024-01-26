@@ -20,6 +20,7 @@ pub struct UserData {
 pub struct UserMessage {
     pub message_id: String,
     pub content: String,
+    pub ws_id: String,
     pub sender_id: String,
     pub room_id: String,
     pub timestamp: u64,

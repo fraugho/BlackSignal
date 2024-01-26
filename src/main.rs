@@ -5,7 +5,6 @@ use names::{Generator, Name};
 
 use bcrypt::{hash, DEFAULT_COST};
 
-use surrealdb::opt::IntoExportDestination;
 use surrealdb::Surreal;
 use surrealdb::opt::auth::Root;
 use surrealdb::engine::remote::ws::Ws;
@@ -179,7 +178,7 @@ async fn main() -> std::io::Result<()> {
 
     let mut users = HashSet::new();
     users.insert(user_id.clone());
-
+    
     //let users = vec![user_id];
     let _ : Vec<Room> = db.create("rooms")
         .content(Room {
@@ -188,13 +187,6 @@ async fn main() -> std::io::Result<()> {
             users,
         })
         .await.expect("bad");
-       
-
-    let rooms: Vec<Room> = db.select("rooms").await.expect("eh");
-
-    let room_registry = rooms
-        .into_iter().map(|room| (room.room_id.clone(), room))
-        .collect::<HashMap<String, Room>>();
 
 
     let app_state = web::Data::new(AppState {

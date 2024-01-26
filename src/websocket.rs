@@ -119,6 +119,7 @@ impl Actor for WsActor {
             "type": "init",
             "user_id": self.user_id,
             "username": default_username,
+            "ws_id": self.ws_id,
         });
 
         ctx.text(init_message.to_string());
@@ -334,11 +335,13 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                 let now = Utc::now();
                                 let timestamp = now.timestamp() as u64;
                                 let message_id = Uuid::new_v4().to_string().replace('-', "");
+                                let ws_id = self.ws_id.clone();
                                 // Create the message only once, reusing the variables directly
                                 let message = UserMessage {
                                     message_id: message_id.clone(),
                                     content: content.clone(),
                                     timestamp,
+                                    ws_id: ws_id.clone(),
                                     sender_id: sender_id.clone(),
                                     room_id: room_id.clone(), 
                                     message_type: MessageTypes::Basic,
@@ -351,6 +354,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                             message_id,
                                             content,
                                             timestamp,
+                                            ws_id,
                                             sender_id: sender_id.clone(),
                                             room_id: room_id.clone(),
                                             message_type: MessageTypes::Basic,
