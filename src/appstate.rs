@@ -36,7 +36,7 @@ impl AppState {
         let actor_registry = self.actor_registry.lock().unwrap();
         
         for room in rooms{
-            if let Some(_) = room.users.get(&user_id){
+            if room.users.get(&user_id).is_some() {
                 for user in &room.users {
                     if let Some(client) = actor_registry.get(user){
                         for instance in client.values() {
