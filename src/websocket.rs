@@ -118,7 +118,6 @@ impl Actor for WsActor {
         let init_message = json!({
             "type": "init",
             "user_id": self.user_id,
-            "username": default_username,
             "ws_id": self.ws_id,
         });
 

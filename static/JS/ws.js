@@ -1,6 +1,5 @@
 //sender id and username are the same
 var sender_id = "";
-var username = "";
 var userMap = {};
 var ws_id = "";
 
@@ -35,7 +34,6 @@ socket.onmessage = function(event) {
         
         //sender_id = message.username;
         sender_id = message.user_id;
-        username = message.username;
         ws_id = message.ws_id;
         return;
     }
@@ -56,10 +54,12 @@ socket.onmessage = function(event) {
         console.log("Sender ID:", sender_id); // Current sender ID
         console.log("Old Username:", oldUsername); // Username being changed
         console.log("New Username:", newUsername); // New username
+        console.log("Hashmap:", userMap[message.user_id]); // Current sender ID
+        console.log("Data type of hash", typeof userMap);
 
         if (oldUsername === sender_id) {
             //sender_id = newUsername; // Update sender_id if the current user changed their username
-            username = newUsername;
+            console.log("HEY");
         }
     }
 
@@ -139,7 +139,7 @@ function sendMessage() {
     const usernameElement = document.createElement('div');
     const messageElement = document.createElement('div');
 
-    usernameElement.textContent = (username) + ':';
+    usernameElement.textContent = (userMap[sender_id]) + ':';
     usernameElement.classList.add('username');
     messageElement.textContent = textarea.value.trim();
 
@@ -182,16 +182,4 @@ document.getElementById('Username').addEventListener('submit', function(event) {
             socket.send(JSON.stringify(payload));
         }
     }
-});
-
-document.addEventListener('DOMContentLoaded', function() {
-    var dropdownTrigger = document.querySelector('.dropdown-trigger');
-    var dropdownMenu = document.querySelector('.dropdown-menu');
-
-    // Toggle dropdown on SVG click
-    dropdownTrigger.addEventListener('click', function(event) {
-        dropdownMenu.style.display = dropdownMenu.style.display === 'block' ? 'none' : 'block';
-        event.stopPropagation(); // Prevent click from bubbling up
-    });
-
 });
