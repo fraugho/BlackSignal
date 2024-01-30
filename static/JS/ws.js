@@ -2,6 +2,7 @@
 var sender_id = "";
 var userMap = {};
 var ws_id = "";
+var username = "";
 
 var socket = new WebSocket("ws://127.0.0.1:8080/ws/");
 
@@ -35,6 +36,7 @@ socket.onmessage = function(event) {
         //sender_id = message.username;
         sender_id = message.user_id;
         ws_id = message.ws_id;
+        username = message.username;
         return;
     }
 
@@ -46,20 +48,18 @@ socket.onmessage = function(event) {
     }
 
     if (message.type === "update_username") {
-        const oldUsername = message.sender;
-        const newUsername = message.username;
-        retroactivelyChangeUsername(oldUsername, newUsername);
-        userMap[message.user_id] = message.username;
+        const message_sender_id = message.sender_id;
+        const new_username = message.new_username;
+        const old_username = userMap[message_sender_id];
 
-        console.log("Sender ID:", sender_id); // Current sender ID
-        console.log("Old Username:", oldUsername); // Username being changed
-        console.log("New Username:", newUsername); // New username
-        console.log("Hashmap:", userMap[message.user_id]); // Current sender ID
-        console.log("Data type of hash", typeof userMap);
-
-        if (oldUsername === sender_id) {
-            //sender_id = newUsername; // Update sender_id if the current user changed their username
-            console.log("HEY");
+        retroactivelyChangeUsername(old_username, new_username);
+        userMap[message.sender_id] = message.new_username;
+        console.log("HEY");
+        console.log("message_sender: ", message_sender_id);
+        console.log("Sender_id: ", sender_id);
+        if (message_sender_id === sender_id) {
+            username = new_username;
+            console.log("YAY");
         }
     }
 
@@ -97,7 +97,6 @@ socket.onmessage = function(event) {
         chatContainer.scrollTop = chatContainer.scrollHeight;
 
     }
-    console.log(message.message_type); 
 };
 
 function retroactivelyChangeUsername(oldUsername, newUsername) {
@@ -124,7 +123,7 @@ function sendMessage() {
     if (messageContent !== '') {
         const payload = {
             content: messageContent,
-            username: sender_id,
+            sender_id: sender_id,
             message_type: MessageTypes.Basic // Assuming 'Basic' is a valid message type for normal messages
         };
 
@@ -139,7 +138,7 @@ function sendMessage() {
     const usernameElement = document.createElement('div');
     const messageElement = document.createElement('div');
 
-    usernameElement.textContent = (userMap[sender_id]) + ':';
+    usernameElement.textContent = (username) + ':';
     usernameElement.classList.add('username');
     messageElement.textContent = textarea.value.trim();
 
@@ -151,7 +150,6 @@ function sendMessage() {
 
     chatContainer.appendChild(messageWrapper);
     chatContainer.scrollTop = chatContainer.scrollHeight;
-    
    
     textarea.value = '';
 }
@@ -171,12 +169,10 @@ document.getElementById('Username').addEventListener('submit', function(event) {
 
     if (newUsername !== '') {
         const payload = {
-            username: sender_id,
+            sender_id: sender_id,
             content: newUsername,
             message_type: MessageTypes.SetUsername
         };
-
-        //sender_id = newUsername;
 
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify(payload));

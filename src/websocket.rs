@@ -105,7 +105,6 @@ impl Actor for WsActor {
         let room_id = self.current_room.clone();
         let actor_addr = ctx.address();
 
-        let default_username = self.username.clone();
         let user_id = self.user_id.clone();
 
         let actor_addr_clone = actor_addr.clone();
@@ -119,6 +118,7 @@ impl Actor for WsActor {
             "type": "init",
             "user_id": self.user_id,
             "ws_id": self.ws_id,
+            "username": self.username,
         });
 
         ctx.text(init_message.to_string());
@@ -246,9 +246,8 @@ pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String
                 //let message = UpdateUsernameMsg(new_username);
                 let message = json!({
                     "type": "update_username",
-                    "username": new_username,
-                    "sender": current_username,
-                    "user_id": user_id,
+                    "new_username": new_username,
+                    "sender_id": user_id,
                 });
                 let serialized_msg = serde_json::to_string(&message).unwrap();
                 state.broadcast_message(serialized_msg, state.main_room_id.clone(), user_id.clone()).await;
@@ -266,7 +265,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
         if let Ok(ws::Message::Text(text)) = msg {
             match serde_json::from_str::<IncomingMessage>(&text) {                
                 Ok(incoming_message) => {
-                    if incoming_message.username == self.user_id {
+                    if incoming_message.sender_id == self.user_id {
                         match incoming_message.message_type {
                             MessageTypes::SetUsername => {
                                 let new_username = incoming_message.content;

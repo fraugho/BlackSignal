@@ -337,23 +337,24 @@ body {
   }
   
   .username_form {
-    position: absolute;         /* Fixed position at the bottom */
-    bottom: 0px;             /* Align to the bottom */
-    left: 0%;               /* Center horizontally */
+    position: absolute;         
+    bottom: 0px;             
+    left: 0%;               
     display: grid;
-    grid-template-columns: 1fr; /* Adjust column widths */
-    grid-template-rows: auto auto; /* One row */
+    grid-template-columns: 1fr; 
+    grid-template-rows: auto auto; 
     background-color: #000000;
     color: #ffffff;
     width: 5rem;
+
 }
 
 .username_form textarea {
     background-color: #000000;
     color: #ffffff;
     border: 1px solid #ffffff;
-    height: 50px;            /* Textarea height */
-    grid-row: 2;             /* Textarea in the second row */
+    grid-row: 2;  
+    height: 50px;      
 }
 
 .username_form button {
@@ -361,8 +362,8 @@ body {
     color: #ffffff;
     border: 1px solid #ffffff;
     cursor: pointer;
-    height: 50px;            /* Button height */
-    grid-row: 1;             /* Button in the first row */
+    grid-row: 1;   
+    height: 50px;
 }
 
 .username_form button:hover {

@@ -36,7 +36,7 @@ pub struct UsernameChangedMessage {
 #[derive(Serialize, Deserialize)]
 pub struct IncomingMessage {
     pub content: String,
-    pub username: String,
+    pub sender_id: String,
     pub message_type: MessageTypes,
 }
 
