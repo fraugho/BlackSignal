@@ -24,6 +24,8 @@ mod websocket;
 use appstate::AppState;
 use structs::{Room, ConnectionState, LoginForm, UserData};
 use websocket::ws_index;
+
+use local_ip_address::local_ip;
 //use anyhow::Result;
 
 /*
@@ -121,6 +123,14 @@ async fn login_action(state: web::Data<AppState>, form: web::Json<LoginForm>, se
     }
 }
 
+#[get("/get-ip")]
+async fn get_ip() -> impl Responder {
+    match local_ip() {
+        Ok(ip) => HttpResponse::Ok().json(json!({"ip": ip.to_string()})),
+        Err(_) => HttpResponse::InternalServerError().finish(),
+    }
+}
+
 #[get("/")]
 async fn home_page(session: Session) -> impl Responder {
     let val: Option<String> = session.get("key").unwrap();
@@ -197,6 +207,15 @@ async fn main() -> std::io::Result<()> {
         //room_registry: Arc::new(Mutex::new(room_registry)),
     });
 
+    let my_local_ip = local_ip();
+    let address;
+    if let Ok(my_local_ip) = my_local_ip {
+        address = my_local_ip;
+        println!("Go to {}:8080", address);
+    } else {
+        return Ok(())
+    }
+
     HttpServer::new(move || {
         App::new()
             .app_data(app_state.clone())
@@ -206,13 +225,14 @@ async fn main() -> std::io::Result<()> {
             .service(create_login_page)
             .service(create_login_action)
             .service(logout)
+            .service(get_ip)
             .route("/ws/", web::get().to(ws_index))
             .service(actix_files::Files::new("/static", "static").show_files_listing())
             .wrap(CookieSession::signed(&[0; 32]).secure(false))
             
     })
     
-    .bind(("127.0.0.1", 8080))?
+    .bind((address, 8080))?
     //.bind(("192.168.0.155", 8080))?
     .run()
     .await
