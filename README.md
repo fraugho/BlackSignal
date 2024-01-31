@@ -6,4 +6,5 @@ This is a messaging site using websockets powered by rust as the communication p
 ```
 surreal start --log trace --user root --pass root --bind 127.0.0.1:8000 memory
 cargo run --release
+copy link in terminal and paste in browser
 ```
