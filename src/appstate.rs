@@ -1,6 +1,5 @@
-use actix::{Addr};
+use actix::Addr;
 
-use surrealdb::opt::IntoResource;
 use surrealdb::{Result, Surreal};
 use surrealdb::engine::remote::ws::Client;
 
@@ -12,7 +11,8 @@ use validator::Validate;
 
 use serde_json::json;
 
-use crate::structs::{Room, UserMessage, UserData, LoginForm, RoomUsers};  
+use crate::structs::{Room, UserData, LoginForm};  
+use crate::message_structs::UserMessage;
 use crate::websocket::{WsActor, WsMessage}; 
 
 pub struct AppState {

@@ -200,5 +200,59 @@ fetch('/get-ip')
         }
     });
 
+    document.getElementById('Username').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            const usernameField = document.getElementById('usernameField');
+            const newUsername = usernameField.value.trim();
+            
+            if (newUsername !== '') {
+                const payload = {
+                    sender_id: sender_id,
+                    content: newUsername,
+                    message_type: MessageTypes.SetUsername
+                };
+        
+                if (socket.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify(payload));
+                }
+            }
+        }
+        
+    });
+
+    document.querySelector('input[type="file"][name="image"]').addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                // The result attribute contains the data as a data: URL representing the file's data as a base64 encoded string.
+                const base64Image = e.target.result;
+                // Instead of calling the sendMessage function, send a POST request to the "/upload" endpoint
+                fetch('/upload', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        data: base64Image.split(',')[1] // Remove the "data:image/*;base64," part of the data URL
+                    })
+                }).then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                }).then(data => {
+                    // Handle the response data here
+                }).catch(error => {
+                    console.error('There has been a problem with your fetch operation:', error);
+                });
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+    
+
 }
 
