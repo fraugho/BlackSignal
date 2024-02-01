@@ -42,14 +42,14 @@ pub async fn change_to_online(db: Arc<Surreal<Client>>, user_id: String) {
     let query = "UPDATE users SET status = 'Online' WHERE user_id = $user_id;";
     db.query(query)
         .bind(("user_id", user_id))
-        .await.expect("Failed to update database");
+        .await.expect("Failed to update user status to online");
 }
 
 pub async fn change_to_offline(db: Arc<Surreal<Client>>, user_id: String) {
     let query = "UPDATE users SET status = 'Offline' WHERE user_id = $user_id;";
     db.query(query)
         .bind(("user_id", user_id))
-        .await.expect("Failed to update database");
+        .await.expect("Failed to update user status to offline");
 }
 
 pub struct WsActor {
@@ -64,7 +64,7 @@ pub struct WsActor {
 impl WsActor {
     async fn delete_message(&self, message_id: String) -> Result<()> {
         let _: Option<UserMessage> = self.state.db.delete(("messages", message_id))
-            .await.expect("error sending_message");
+            .await.expect("error deleting_message");
 
         Ok(())
     }
@@ -136,8 +136,6 @@ impl Actor for WsActor {
         let mut actor_registry = self.state.actor_registry.lock().unwrap();
         if let Some(hashmap) = actor_registry.get_mut(&self.user_id.clone()) {
             hashmap.remove(&self.ws_id.clone());
-            println!("Reomve: {}", hashmap.capacity());
-            println!("HEYYYYYYYY");
         }
 
         actix::spawn(async move {
@@ -210,9 +208,9 @@ pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, roo
 
     let mut response = db.query(query)
         .bind(("room_id", room_id))
-        .await.expect("Failed to update database");
+        .await.expect("Failed to execute query to get users in a particular room");
 
-    let users: Vec<User> = response.take(0).expect("bad");
+    let users: Vec<User> = response.take(0).expect("Failed to Deserialize user data from db: fn get_users");
 
     let users_map: HashMap<String, String> = users.into_iter()
         .map(|user| (user.user_id, user.username))
@@ -233,7 +231,7 @@ pub async fn get_users(db: Arc<Surreal<Client>>,  actor_addr: Addr<WsActor>, roo
 pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String, current_username: String, new_username: String, actor_addr: Addr<WsActor>, state: Arc<AppState>) {
     let query = "SELECT username FROM users WHERE username = $username;";
     if let Ok(mut response) = db.query(query).bind(("username", new_username.clone())).await {
-        let x: Option<String> = response.take((0, "username")).expect("nah");
+        let x: Option<String> = response.take((0, "username")).expect("Failed to get user data: fn check_and_update_username");
 
         match x {
             Some(_) => println!("Username already used"),
@@ -242,7 +240,7 @@ pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String
                 db.query(query)
                     .bind(("new_username", new_username.clone()))
                     .bind(("username", current_username.clone()))
-                    .await.expect("Failed to update database");
+                    .await.expect("Failed to update username");
                 //let message = UpdateUsernameMsg(new_username);
                 let message = json!({
                     "type": "update_username",
@@ -297,7 +295,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                             room_id,
                                             users,
                                         })
-                                        .await.expect("bad");
+                                        .await.expect("Failed to create room");
                                 });
                             }
                             MessageTypes::AddToRoom => {
@@ -357,18 +355,14 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                             room_id: room_id.clone(),
                                             message_type: MessageTypes::Basic,
                                         })
-                                        .await.expect("error sending_message");
+                                        .await.expect("Failed to upload message to db");
                     
                                     let serialized_msg = serde_json::to_string(&message).unwrap();
                                     app_state.broadcast_message(serialized_msg, room_id, sender_id.clone()).await;
                                 });
                                 },
                             }
-                    } else {
-                        println!("No bueno");
-                        eprintln!("Invalid access");
-                    }
-                    
+                    } 
                 }
 
                 Err(e) => eprintln!("Error processing message: {:?}", e),
@@ -379,34 +373,34 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
 
 pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
-    let user_id: String = session.get("key").unwrap().unwrap();
-    let query = "SELECT * FROM users WHERE user_id = $user_id;";
-    let mut response = state.db.query(query)
-        .bind(("user_id", user_id.clone()))
-        .await.expect("aaaah");
-    let user_query: Option<UserData> = response.take(0).expect("cool");
+    if let Some(user_id) = session.get::<String>("key").unwrap(){
+        let query = "SELECT * FROM users WHERE user_id = $user_id;";
+        let mut response = state.db.query(query)
+            .bind(("user_id", user_id.clone()))
+            .await.expect("aaaah");
+        let user_query: Option<UserData> = response.take(0).expect("Failed to get user data: fn ws_index");
 
-    //adds actor to registory
-    
+        match user_query {
+            Some(user) => {
 
-    match user_query {
-        Some(user) => {
-
-            let ws_actor = WsActor {
-                user_id,
-                ws_id: Uuid::new_v4().to_string().replace('-', ""),
-                username: user.username,
-                current_room: main_room_id.clone(),
-                rooms: user.rooms,
-                state: state.into_inner().clone(),
-            };
-        
-            ws::start(ws_actor, &req, stream)
-        },
-        None => {
+                let ws_actor = WsActor {
+                    user_id,
+                    ws_id: Uuid::new_v4().to_string().replace('-', ""),
+                    username: user.username,
+                    current_room: main_room_id.clone(),
+                    rooms: user.rooms,
+                    state: state.into_inner().clone(),
+                };
             
-            session.purge();  
-            return Ok(HttpResponse::Found().append_header(("LOCATION", "/login")).finish());
+                return ws::start(ws_actor, &req, stream)
+            },
+            None => {
+                
+                session.purge();  
+                return Ok(HttpResponse::Found().append_header(("LOCATION", "/login")).finish());
+            }
         }
     }
+    return Ok(HttpResponse::Found().append_header(("LOCATION", "/login")).finish());
+    
 }
