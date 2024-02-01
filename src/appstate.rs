@@ -27,12 +27,10 @@ impl AppState {
     pub async fn broadcast_message(&self, message: String, room_id: String, user_id: String) {
         // Querying connections to get a list of UUIDs
         let query = "SELECT * FROM rooms WHERE room_id = $room_id;";
-        println!("room_id: {}", room_id);
-        println!("{}", query);
         let mut response = self.db.query(query)
             .bind(("room_id", room_id))
-            .await.expect("bad");
-        let rooms: Vec<Room> = response.take(0).expect("hey");
+            .await.expect("Failed to get users in a partiucalr room: fn broadcast_message");
+        let rooms: Vec<Room> = response.take(0).expect("Failed to Deserialize room query data");
         let actor_registry = self.actor_registry.lock().unwrap();
         
         for room in rooms{
@@ -79,8 +77,8 @@ impl AppState {
         let mut response = self.db
             .query(query)
             .bind(("login_username", login_data.username.clone()))
-            .await.expect("aaaah");
-        let result: Option<UserData> = response.take(0).expect("cool");
+            .await.expect("Failed to query for a user");
+        let result: Option<UserData> = response.take(0).expect("failed to deserilize user data: fn authenticate_user");
         match result {
             Some(user_data) => {
                 if bcrypt::verify(login_data.password.clone(), &user_data.hashed_password).unwrap_or(false) {
@@ -96,10 +94,9 @@ impl AppState {
     }
 
     pub async fn valid_user_credentials(&self, signup_data: &LoginForm) -> bool{
-        let result: Option<UserData> = self.db.select(("logins", &signup_data.username)).await.expect("something");
+        let result: Option<UserData> = self.db.select(("logins", &signup_data.username)).await.expect("Failed to query user: fn valid_user_credentials");
         match result {
             Some(_) => {
-                eprintln!("bad");
                 false
             },
             None => {

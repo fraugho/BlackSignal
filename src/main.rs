@@ -1,10 +1,13 @@
 use actix_web::{get, post, web, App, HttpServer, HttpResponse, Responder};
 use actix_session::{Session, CookieSession};
+use actix_web::cookie::Key;
+use actix_files::Files;
 
 use names::{Generator, Name};
 
 use bcrypt::{hash, DEFAULT_COST};
 
+use serde::{Deserialize, Serialize};
 use surrealdb::Surreal;
 use surrealdb::opt::auth::Root;
 use surrealdb::engine::remote::ws::Ws;
@@ -34,6 +37,8 @@ Users
 Connections
 Messages
 */
+
+
 
 #[get("/logout")]
 async fn logout(session: Session) -> impl Responder {
@@ -73,7 +78,7 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
                 hashed_password,
                 status: ConnectionState::Online,
                 rooms: vec![state.main_room_id.clone()],
-            }).await.expect("shit");
+            }).await.expect("Failed to create user");
 
         state.join_main_room(username.clone(), user_id.clone()).await;
         
@@ -116,11 +121,31 @@ async fn login_action(state: web::Data<AppState>, form: web::Json<LoginForm>, se
 
     match state.authenticate_user(&login).await {
         Some(username) => {
-            session.insert("key", username).unwrap();
-            HttpResponse::Found().append_header(("LOCATION", "/")).finish()
+            if session.insert("key", username).is_ok(){
+                HttpResponse::Found().append_header(("LOCATION", "/")).finish()
+            } else {
+                HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
+            }
+            
         }
         None => HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
     }
+}
+
+#[derive(Serialize, Deserialize)]
+struct Image{
+
+}
+
+#[post("/upload")]
+async fn upload(upload: web::Json<Image>, state: web::Data<AppState>, session: Session) -> impl Responder {
+    if let Ok(key) = session.get::<String>("key"){
+        match key{
+            Some(user) => println!("cool"),
+            None  => println!("not cool"),
+        }
+    };
+    HttpResponse::Ok()
 }
 
 #[get("/get-ip")]
@@ -155,14 +180,14 @@ async fn home_page(session: Session) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let db = Surreal::new::<Ws>("localhost:8000").await.expect("something_horrible");
+    let db = Surreal::new::<Ws>("localhost:8000").await.expect("unable to connect ot db");
 
     db.signin(Root {
         username: "root",
         password: "root",
-    }).await.expect("error");
+    }).await.expect("Unable to Login to DB");
 
-    db.use_ns("general").use_db("all").await.expect("Something bad");
+    db.use_ns("general").use_db("all").await.expect("Not able to use ns of db");
 
     let hashed_password = match hash("password", DEFAULT_COST) {
         Ok(hashed) => hashed,
@@ -183,7 +208,7 @@ async fn main() -> std::io::Result<()> {
             status: ConnectionState::Online,
             rooms: vec![main_room_id.clone()],
 
-        }).await.expect("hahahah");
+        }).await.expect("Failed making test user data");
     
 
     let mut users = HashSet::new();
@@ -196,7 +221,7 @@ async fn main() -> std::io::Result<()> {
             room_id: main_room_id.clone(),
             users,
         })
-        .await.expect("bad");
+        .await.expect("Failed to created test room");
 
 
     let app_state = web::Data::new(AppState {
@@ -216,6 +241,8 @@ async fn main() -> std::io::Result<()> {
         return Ok(())
     }
 
+    let secret_key = Key::generate();
+
     HttpServer::new(move || {
         App::new()
             .app_data(app_state.clone())
@@ -226,10 +253,10 @@ async fn main() -> std::io::Result<()> {
             .service(create_login_action)
             .service(logout)
             .service(get_ip)
+            .service(Files::new("/Images", "./Images"))
             .route("/ws/", web::get().to(ws_index))
             .service(actix_files::Files::new("/static", "static").show_files_listing())
             .wrap(CookieSession::signed(&[0; 32]).secure(false))
-            
     })
     
     .bind((address, 8080))?
