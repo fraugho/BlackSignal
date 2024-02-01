@@ -1,10 +1,9 @@
-//sender id and username are the same
 var sender_id = "";
 var userMap = {};
 var ws_id = "";
 var username = "";
 
-var socket; // Declare the socket variable in the outer scope
+var socket; 
 
 fetch('/get-ip')
     .then(response => response.json())
@@ -19,7 +18,6 @@ fetch('/get-ip')
     function initializeWebSocket(serverIp) {
         socket = new WebSocket(`ws://${serverIp}:8080/ws/`);
 
-        // All your socket event handlers and other related code goes here...
         socket.onclose = function(event) {
             if (!event.wasClean) {
                 window.location.href = '/login'; // Redirect to login page
@@ -51,9 +49,7 @@ fetch('/get-ip')
     
         // Handle initial setup message
         if (message.type === "init") {
-            // Set the UUID and username received from the server
-            
-            //sender_id = message.username;
+
             sender_id = message.user_id;
             ws_id = message.ws_id;
             username = message.username;
@@ -61,7 +57,7 @@ fetch('/get-ip')
         }
     
         if (message.type === "new_user_joined") {
-            // Set the UUID and username received from the server
+            // adds new user UUID and username received from the server
     
             userMap[message.user_id] = message.username;
             return;
@@ -144,7 +140,7 @@ fetch('/get-ip')
             const payload = {
                 content: messageContent,
                 sender_id: sender_id,
-                message_type: MessageTypes.Basic // Assuming 'Basic' is a valid message type for normal messages
+                message_type: MessageTypes.Basic 
             };
     
     
@@ -174,11 +170,10 @@ fetch('/get-ip')
         textarea.value = '';
     }
     
-    // Add keydown event listener to the textarea
     document.querySelector('textarea[name="message_form"]').addEventListener('keydown', function(event) {
         if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault(); // Prevent default Enter behavior
-            sendMessage(); // Call the same function that the submit event calls
+            event.preventDefault();
+            sendMessage();
         }
     });
     
@@ -205,7 +200,7 @@ fetch('/get-ip')
             event.preventDefault();
             const usernameField = document.getElementById('usernameField');
             const newUsername = usernameField.value.trim();
-            
+
             if (newUsername !== '') {
                 const payload = {
                     sender_id: sender_id,
@@ -253,6 +248,5 @@ fetch('/get-ip')
         }
     });
     
-
 }
 
