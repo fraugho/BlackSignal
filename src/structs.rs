@@ -16,40 +16,6 @@ pub struct UserData {
     pub rooms: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct UserMessage {
-    pub message_id: String,
-    pub content: String,
-    pub ws_id: String,
-    pub sender_id: String,
-    pub room_id: String,
-    pub timestamp: u64,
-    pub message_type: MessageTypes,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct UsernameChangedMessage {
-    pub old_username: String,
-    pub new_username: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct IncomingMessage {
-    pub content: String,
-    pub sender_id: String,
-    pub message_type: MessageTypes,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub enum MessageTypes {
-    SetUsername,
-    AddToRoom,
-    CreateRoom,
-    ChangeRoom,
-    RemoveFromRoom,
-    Basic,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ConnectionState {
     Online,
