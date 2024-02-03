@@ -12,6 +12,25 @@ enum MessageTypes {
     Basic,
 };
 
+type BasicMessage = { /* ... */ };
+type ImageMessage = { /* ... */ };
+type NotificationMessage = { /* ... */ };
+type TypingMessage = { /* ... */ };
+type UserRemovalMessage = { /* ... */ };
+type ChangeRoomMessage = { /* ... */ };
+type UsernameChangeMessage = { /* ... */ };
+type CreateRoomChangeMessage = { /* ... */ };
+
+type Message = 
+    | { type: 'Basic', message: BasicMessage }
+    | { type: 'Image', message: ImageMessage }
+    | { type: 'Notification', message: NotificationMessage }
+    | { type: 'Typing', message: TypingMessage }
+    | { type: 'UserRemoval', message: UserRemovalMessage }
+    | { type: 'ChangeRoom', message: ChangeRoomMessage }
+    | { type: 'UsernameChange', message: UsernameChangeMessage }
+    | { type: 'CreateRoomChange', message: CreateRoomChangeMessage };
+
 /*
     fetch('/get-ip')
     .then(response => response.json())
