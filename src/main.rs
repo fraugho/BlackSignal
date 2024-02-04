@@ -19,6 +19,7 @@ mod structs;
 mod message_structs;
 
 use structs::{Room, ConnectionState, LoginForm, UserData};
+use message_structs::*;
 
 use local_ip_address::local_ip;
 use websocket::ws_index;
@@ -79,13 +80,10 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
             eprintln!("Error adding to room: {:?}", e);
         }
 
-        let message = json!({
-            "type": "new_user_joined",
-            "user_id": user_id,
-            "username": username,
-        });
+        let message = UserMessage::NewUser(NewUserMessage::new(user_id.clone(), username.clone()));
+        let serilized_message = serde_json::to_string(&message).unwrap();
 
-        state.broadcast_message(message.to_string(), state.main_room_id.clone(), user_id.clone()).await;
+        state.broadcast_message(serilized_message, state.main_room_id.clone(), user_id.clone()).await;
         session.insert("key", user_id).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {

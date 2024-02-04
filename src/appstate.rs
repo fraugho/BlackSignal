@@ -12,7 +12,7 @@ use validator::Validate;
 use serde_json::json;
 
 use crate::structs::{Room, UserData, LoginForm};  
-use crate::message_structs::UserMessage;
+use crate::message_structs::*;
 use crate::websocket::{WsActor, WsMessage}; 
 
 pub struct AppState {
@@ -60,17 +60,20 @@ impl AppState {
     }
 
     pub async fn catch_up(&self, room_id: &str) -> Result<Vec<UserMessage>> {
-
         let query = "SELECT * FROM messages WHERE room_id = $room_id ORDER BY timestamp ASC;";
     
         let mut response = self.db.query(query).bind(("room_id", room_id))
             .bind(("room_id", room_id))
             .await?;
     
-        let messages: Vec<UserMessage> = response.take(0)?;
+        let basic_messages: Vec<BasicMessage> = response.take(0)?;
     
-        Ok(messages)
-    }  
+        let user_messages: Vec<UserMessage> = basic_messages.into_iter().map(UserMessage::Basic).collect();
+    
+        Ok(user_messages)
+    }
+    
+    
 
     pub async fn authenticate_user(&self, login_data: &LoginForm) -> Option<String>{
         let query = "SELECT * FROM users WHERE login_username = $login_username;";
