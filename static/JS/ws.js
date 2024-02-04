@@ -29,48 +29,49 @@ fetch('/get-ip')
     .catch(error => console.error('Error fetching server IP:', error));
 function initializeWebSocket(server_ip) {
     socket = new WebSocket(`ws://${server_ip}:8080/ws/`);
-    socket.onclose = function (event) {
+    socket.onclose = (event) => {
         if (!event.wasClean) {
             window.location.href = '/login';
         }
     };
-    socket.onmessage = function (event) {
+    socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if ('Initialization' in data) {
-            handleInitialization(data.Initialization);
-        }
-        else if ('Basic' in data) {
-            handleBasicMessage(data.Basic);
-        }
-        else if ('Image' in data) {
-            handleImageMessage(data.Image);
-        }
-        else if ('Notification' in data) {
-            handleNotificationMessage(data.Notification);
-        }
-        else if ('Typing' in data) {
-            handleTypingMessage(data.Typing);
-        }
-        else if ('NewUser' in data) {
-            handleNewUserMessage(data.NewUser);
-        }
-        else if ('UserAddition' in data) {
-            handleUserAdditionMessage(data.UserAddition);
-        }
-        else if ('UserRemoval' in data) {
-            handleUserRemovalMessage(data.UserRemoval);
-        }
-        else if ('ChangeRoom' in data) {
-            handleChangeRoomMessage(data.ChangeRoom);
-        }
-        else if ('UsernameChange' in data) {
-            handleUsernameChangeMessage(data.UsernameChange);
-        }
-        else if ('CreateRoomChange' in data) {
-            handleCreateRoomChangeMessage(data.CreateRoomChange);
-        }
-        else {
-            console.error("Unknown message type received");
+        switch (true) {
+            case 'Initialization' in data:
+                handleInitialization(data.Initialization);
+                break;
+            case 'Basic' in data:
+                handleBasicMessage(data.Basic);
+                break;
+            case 'Image' in data:
+                handleImageMessage(data.Image);
+                break;
+            case 'Notification' in data:
+                handleNotificationMessage(data.Notification);
+                break;
+            case 'Typing' in data:
+                handleTypingMessage(data.Typing);
+                break;
+            case 'NewUser' in data:
+                handleNewUserMessage(data.NewUser);
+                break;
+            case 'UserAddition' in data:
+                handleUserAdditionMessage(data.UserAddition);
+                break;
+            case 'UserRemoval' in data:
+                handleUserRemovalMessage(data.UserRemoval);
+                break;
+            case 'ChangeRoom' in data:
+                handleChangeRoomMessage(data.ChangeRoom);
+                break;
+            case 'UsernameChange' in data:
+                handleUsernameChangeMessage(data.UsernameChange);
+                break;
+            case 'CreateRoomChange' in data:
+                handleCreateRoomChangeMessage(data.CreateRoomChange);
+                break;
+            default:
+                console.error("Unknown message type received");
         }
     };
 }
@@ -242,7 +243,6 @@ document.querySelector('input[type="file"][name="image"]').addEventListener('cha
                 }
                 return response.json();
             }).then(data => {
-                // Handle the response data here
             }).catch(error => {
                 console.error('There has been a problem with your fetch operation:', error);
             });

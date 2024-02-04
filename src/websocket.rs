@@ -3,21 +3,14 @@ use actix_web::{web, HttpResponse};
 use actix_web_actors::ws;
 use actix_session::Session;
 use actix::Message;
-
 use surrealdb::{Result, Surreal};
 use surrealdb::engine::remote::ws::Client;
-
 use serde::{Serialize, Deserialize};
-
 use uuid::Uuid;
-
 use chrono::Utc;
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-
 use serde_json::json;
-
 use crate::appstate::AppState;
 use crate::structs::{Room, User, UserData};
 use crate::message_structs::*;
@@ -98,14 +91,10 @@ impl Actor for WsActor {
         let room_id = self.current_room.clone();
         let actor_addr = ctx.address();
         let user_id = self.user_id.clone();
-    
         let actor_addr_clone = actor_addr.clone();
         let actor_addr_clone2 = actor_addr.clone();
-
         let user_info = UserInfo::new(self.user_id.clone(), self.ws_id.clone(), self.username.clone());
-
         ctx.spawn(actix::fut::wrap_future(get_users(db.clone(), actor_addr_clone, room_id.clone(), user_info)));
-
         ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr_clone2, room_id)));
         ctx.spawn(actix::fut::wrap_future(change_to_online(db, user_id)));
     }
@@ -149,33 +138,7 @@ impl Handler<UpdateUsernameMsg> for WsActor {
     type Result = ();
 
     fn handle(&mut self, msg: UpdateUsernameMsg, ctx: &mut Self::Context) -> Self::Result {
-        let init_message = json!({
-            "type": "init",
-            "username": msg.0
-        });
-
         self.username = msg.0;
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SendUserStruct {
-    user_hashmap: HashMap<String, String>,
-    message_type: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SendUsers(String);
-
-impl Message for SendUsers {
-    type Result = ();
-}
-
-impl Handler<SendUsers> for WsActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: SendUsers, ctx: &mut Self::Context) -> Self::Result {
-        ctx.text(msg.0)
     }
 }
 
@@ -184,14 +147,11 @@ pub async fn get_users(db: Arc<Surreal<Client>>, actor_addr: Addr<WsActor>, room
     let mut response = db.query(query)
         .bind(("room_id", room_id))
         .await.expect("Failed to execute query to get users in a particular room");
-
     let users: Vec<User> = response.take(0).expect("Failed to Deserialize user data from db: fn get_users");
     let user_map: HashMap<String, String> = users.into_iter()
         .map(|user| (user.user_id, user.username))
         .collect();
-
     let init_message = UserMessage::Initialization(InitMessage::new(user_info.user_id, user_info.ws_id, user_info.username, user_map));
-
     let serialized = serde_json::to_string(&init_message).unwrap();
     actor_addr.do_send(WsMessage(serialized));
 }
@@ -208,15 +168,7 @@ pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String
                     .bind(("new_username", new_username.clone()))
                     .bind(("username", current_username.clone()))
                     .await.expect("Failed to update username");
-
-                let message = json!({
-                    "type": "update_username",
-                    "new_username": new_username,
-                    "sender_id": user_id,
-                });
-
                 let message = UserMessage::UsernameChange(UsernameChangeMessage::new(user_id.clone(), new_username.clone()));
-
                 let serialized_msg = serde_json::to_string(&message).unwrap();
                 state.broadcast_message(serialized_msg, state.main_room_id.clone(), user_id.clone()).await;
                 actor_addr.do_send(UpdateUsernameMsg(new_username));
@@ -254,14 +206,12 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                             ws_id,
                                         })
                                         .await.expect("Failed to upload message to db");
-    
                                     let serialized_msg = serde_json::to_string(&UserMessage::Basic(basic_message)).unwrap();
                                     app_state.broadcast_message(serialized_msg, room_id, sender_id.clone()).await;
                                 });
                             } else {
                                 println!("Invalid Access")
                             }
-
                         },
                         UserMessage::UsernameChange(username_change_message) => {
                             let new_username = username_change_message.new_username;
@@ -318,18 +268,14 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
     }
 }
 
-
 pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
-
     if let Some(user_id) = session.get::<String>("key").unwrap(){
         let query = "SELECT * FROM users WHERE user_id = $user_id;";
         let mut response = state.db.query(query)
             .bind(("user_id", user_id.clone()))
             .await.expect("aaaah");
-
         let user_query: Option<UserData> = response.take(0).expect("Failed to get user data: fn ws_index");
-
         match user_query {
             Some(user) => {
                 let ws_actor = WsActor {
@@ -340,7 +286,6 @@ pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: 
                     rooms: user.rooms,
                     state: state.into_inner().clone(),
                 };
-
                 return ws::start(ws_actor, &req, stream)
             },
             None => {
@@ -349,6 +294,5 @@ pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: 
             }
         }
     }
-
     return Ok(HttpResponse::Found().append_header(("LOCATION", "/login")).finish());
 }

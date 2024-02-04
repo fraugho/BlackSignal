@@ -1,18 +1,21 @@
 use actix_web::{get, post, web, App, HttpServer, HttpResponse, Responder};
 use actix_session::{Session, CookieSession};
-use actix_web_lab::extract::Path;
 use actix_files::Files;
-
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
 use surrealdb::Surreal;
-
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::fs::read_to_string;
 use std::io::Write;
+use local_ip_address::local_ip;
+use serde::{Deserialize, Serialize};
+use bcrypt::{hash, DEFAULT_COST};
+use names::{Generator, Name};
+use serde_json::json;
+use uuid::Uuid;
 
-//local packages
+// Local packages
 mod websocket;
 mod appstate;
 mod structs;
@@ -20,22 +23,8 @@ mod message_structs;
 
 use structs::{Room, ConnectionState, LoginForm, UserData};
 use message_structs::*;
-
-use local_ip_address::local_ip;
 use websocket::ws_index;
 use appstate::AppState;
-
-use serde::{Deserialize, Serialize};
-
-use bcrypt::{hash, DEFAULT_COST};
-
-use names::{Generator, Name};
-
-use serde_json::json;
-
-use uuid::Uuid;
-
-
 
 #[get("/logout")]
 async fn logout(session: Session) -> impl Responder {
@@ -49,7 +38,7 @@ async fn create_login_page() -> impl Responder {
     match read_to_string(path) {
         Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
         Err(err) => {
-            eprintln!("Failed to read homepage HTML: {:?}", err);
+            eprintln!("Failed to read create_login_page HTML: {:?}", err);
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -73,7 +62,6 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
                 rooms: vec![state.main_room_id.clone()],
             }
         ).await.expect("Failed to create user");
-        state.join_main_room(username.clone(), user_id.clone()).await;
 
         let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
         if let Err(e) = state.db.query(query).bind(("user_id", user_id.clone())).bind(("room_id", state.main_room_id.clone())).await {
@@ -81,9 +69,9 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
         }
 
         let message = UserMessage::NewUser(NewUserMessage::new(user_id.clone(), username.clone()));
-        let serilized_message = serde_json::to_string(&message).unwrap();
+        let serialized_message = serde_json::to_string(&message).unwrap();
 
-        state.broadcast_message(serilized_message, state.main_room_id.clone(), user_id.clone()).await;
+        state.broadcast_message(serialized_message, state.main_room_id.clone(), user_id.clone()).await;
         session.insert("key", user_id).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
@@ -97,7 +85,7 @@ async fn login_page() -> impl Responder {
     match read_to_string(path) {
         Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
         Err(err) => {
-            eprintln!("Failed to read homepage HTML: {:?}", err);
+            eprintln!("Failed to read login_page HTML: {:?}", err);
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -126,21 +114,12 @@ struct Image {
 
 #[post("/upload")]
 async fn upload(upload: web::Json<Image>, session: Session) -> impl Responder {
-    // Access the uploaded image data from the request body
     let image_data = upload.into_inner();
-
-    // Handle the image upload logic here
-    // You can save the image to a file, store it in a database, or perform any other necessary operations
-
-    // Example: Save the image to the "/Images" directory
     let file_name = Uuid::new_v4().to_string().replace('-', "");
-    //let image_filename = format!("/Images/{}.jpg", image_data.filename); // Assuming the filename is provided in the Image struct
     let image_filename = format!("/Images/{}.jpg", file_name);
     let image_path = std::path::Path::new(&image_filename);
     let mut image_file = std::fs::File::create(image_path).expect("Failed to create image file");
     image_file.write_all(&image_data.data).expect("Failed to write image data to file");
-
-    // Example response
     HttpResponse::Ok()
 }
 
@@ -171,20 +150,18 @@ async fn home_page(session: Session) -> impl Responder {
             match read_to_string(path) {
                 Ok(content) => HttpResponse::Ok().content_type("text/html").body(content),
                 Err(err) => {
-                    eprintln!("Failed to read homepage HTML: {:?}", err);
+                    eprintln!("Failed to read home_page HTML: {:?}", err);
                     HttpResponse::InternalServerError().finish()
                 }
             }
         }
-        None => {
-            HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
-        }
+        None => HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
     }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let db = Surreal::new::<Ws>("localhost:8000").await.expect("unable to connect ot db");
+    let db = Surreal::new::<Ws>("localhost:8000").await.expect("Unable to connect to db");
     db.signin(Root {
         username: "root",
         password: "root",
@@ -193,16 +170,13 @@ async fn main() -> std::io::Result<()> {
 
     let hashed_password = match hash("password", DEFAULT_COST) {
         Ok(hashed) => hashed,
-        Err(_) => {
-            return Ok(())
-        }
+        Err(_) => return Ok(())
     };
 
     let main_room_id = Uuid::new_v4().to_string().replace('-', "");
     let user_id = Uuid::new_v4().to_string().replace('-', "");
 
-
-    //creates test user
+    // Create test user
     let _: Option<UserData> = db.create(("users", "test"))
         .content(UserData {
             user_id: user_id.clone(),
@@ -222,7 +196,7 @@ async fn main() -> std::io::Result<()> {
             room_id: main_room_id.clone(),
             users,
         })
-        .await.expect("Failed to created test room");
+        .await.expect("Failed to create test room");
 
     let app_state = web::Data::new(AppState {
         db: Arc::new(db),
