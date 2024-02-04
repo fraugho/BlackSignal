@@ -20,7 +20,7 @@ use serde_json::json;
 
 use crate::appstate::AppState;
 use crate::structs::{Room, User, UserData};
-use crate::message_structs::{UserMessage, MessageTypes, IncomingMessage};
+use crate::message_structs::*;
 
 pub async fn get_messages(app_state: Arc<AppState>, actor_addr: Addr<WsActor>, room_id: String) {
     match app_state.catch_up(&room_id).await {
@@ -98,17 +98,14 @@ impl Actor for WsActor {
         let room_id = self.current_room.clone();
         let actor_addr = ctx.address();
         let user_id = self.user_id.clone();
+    
         let actor_addr_clone = actor_addr.clone();
         let actor_addr_clone2 = actor_addr.clone();
 
-        ctx.spawn(actix::fut::wrap_future(get_users(db.clone(), actor_addr_clone, room_id.clone())));
-        let init_message = json!({
-            "type": "init",
-            "user_id": self.user_id,
-            "ws_id": self.ws_id,
-            "username": self.username,
-        });
-        ctx.text(init_message.to_string());
+        let user_info = UserInfo::new(self.user_id.clone(), self.ws_id.clone(), self.username.clone());
+
+        ctx.spawn(actix::fut::wrap_future(get_users(db.clone(), actor_addr_clone, room_id.clone(), user_info)));
+
         ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr_clone2, room_id)));
         ctx.spawn(actix::fut::wrap_future(change_to_online(db, user_id)));
     }
@@ -182,24 +179,21 @@ impl Handler<SendUsers> for WsActor {
     }
 }
 
-pub async fn get_users(db: Arc<Surreal<Client>>, actor_addr: Addr<WsActor>, room_id: String) {
+pub async fn get_users(db: Arc<Surreal<Client>>, actor_addr: Addr<WsActor>, room_id: String, user_info: UserInfo) {
     let query = "SELECT user_id, username FROM users WHERE $room_id IN rooms;";
     let mut response = db.query(query)
         .bind(("room_id", room_id))
         .await.expect("Failed to execute query to get users in a particular room");
 
     let users: Vec<User> = response.take(0).expect("Failed to Deserialize user data from db: fn get_users");
-    let users_map: HashMap<String, String> = users.into_iter()
+    let user_map: HashMap<String, String> = users.into_iter()
         .map(|user| (user.user_id, user.username))
         .collect();
 
-    let send_user = SendUserStruct {
-        user_hashmap: users_map,
-        message_type: "user_list".to_string(),
-    };
+    let init_message = UserMessage::Initialization(InitMessage::new(user_info.user_id, user_info.ws_id, user_info.username, user_map));
 
-    let serialized = serde_json::to_string(&send_user).unwrap();
-    actor_addr.do_send(SendUsers(serialized));
+    let serialized = serde_json::to_string(&init_message).unwrap();
+    actor_addr.do_send(WsMessage(serialized));
 }
 
 pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String, current_username: String, new_username: String, actor_addr: Addr<WsActor>, state: Arc<AppState>) {
@@ -221,6 +215,8 @@ pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String
                     "sender_id": user_id,
                 });
 
+                let message = UserMessage::UsernameChange(UsernameChangeMessage::new(user_id.clone(), new_username.clone()));
+
                 let serialized_msg = serde_json::to_string(&message).unwrap();
                 state.broadcast_message(serialized_msg, state.main_room_id.clone(), user_id.clone()).await;
                 actor_addr.do_send(UpdateUsernameMsg(new_username));
@@ -234,101 +230,86 @@ pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String
 impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsActor {
     fn handle(&mut self, msg: std::result::Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         if let Ok(ws::Message::Text(text)) = msg {
-            match serde_json::from_str::<IncomingMessage>(&text) {
-                Ok(incoming_message) => {
-                    if incoming_message.sender_id == self.user_id {
-                        match incoming_message.message_type {
-                            MessageTypes::SetUsername => {
-                                let new_username = incoming_message.content;
-                                let username = self.username.clone();
-                                let db = self.state.db.clone();
-                                let actor_addr = ctx.address();
-                                let state = self.state.clone();
-                                let user_id = self.user_id.clone();
-
-                                // Spawn the async function
-                                ctx.spawn(actix::fut::wrap_future(check_and_update_username(db, user_id, username, new_username, actor_addr, state)));
-                            },
-                            MessageTypes::CreateRoom => {
-                                let room_id = Uuid::new_v4().to_string().replace('-', "");
-                                let room_name = incoming_message.content;
+            match serde_json::from_str::<UserMessage>(&text) {
+                Ok(message) => {
+                    match message {
+                        UserMessage::Basic(basic_message) => {
+                            if basic_message.sender_id == self.user_id {
                                 let app_state = self.state.clone();
-                                self.rooms.push(room_id.clone());
-                                let mut users = HashSet::new();
-                                users.insert(self.user_id.clone());
-
-                                actix::spawn(async move {
-                                    let _ : Vec<Room> = app_state.db.create("rooms")
-                                        .content(Room {
-                                            name: room_name,
-                                            room_id,
-                                            users,
-                                        })
-                                        .await.expect("Failed to create room");
-                                });
-                            }
-                            MessageTypes::AddToRoom => {
-                                let room_id = incoming_message.content.clone();
-                                let user_id = incoming_message.content;
-                                let app_state = self.state.clone();
-
-                                actix::spawn(async move {
-                                    let query =  "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
-                                    if let Err(e) = app_state.db.query(query)
-                                        .bind(("user_id", user_id))
-                                        .bind(("room_id", room_id))
-                                        .await {
-                                        eprintln!("Error adding to room: {:?}", e);
-                                    }
-                                });
-                            }
-                            MessageTypes::ChangeRoom => {
-                                let room_id = incoming_message.content;
-                                let user_id = self.username.clone();
-                                let app_state = self.state.clone();
-                                let actor_addr = ctx.address().clone();
-                                ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr, room_id)));
-                            }
-                            MessageTypes::RemoveFromRoom => {}
-                            MessageTypes::Basic => {
-                                let content = incoming_message.content;
-                                let app_state = self.state.clone();
-                                let sender_id = self.user_id.clone();
-                                let room_id = self.rooms[0].clone();
+                                let sender_id = basic_message.sender_id.clone();
+                                let content = basic_message.content.clone();
+                                let room_id = self.current_room.clone();
+                                let ws_id = self.ws_id.clone();
                                 let now = Utc::now();
                                 let timestamp = now.timestamp() as u64;
                                 let message_id = Uuid::new_v4().to_string().replace('-', "");
-                                let ws_id = self.ws_id.clone();
-
-                                // Create the message only once, reusing the variables directly
-                                let message = UserMessage {
-                                    message_id: message_id.clone(),
-                                    content: content.clone(),
-                                    timestamp,
-                                    ws_id: ws_id.clone(),
-                                    sender_id: sender_id.clone(),
-                                    room_id: room_id.clone(),
-                                    message_type: MessageTypes::Basic,
-                                };
-
                                 actix::spawn(async move {
-                                    let _: Option<UserMessage> = app_state.db.create(("messages", message_id.clone()))
-                                        .content(UserMessage {
+                                    let _: Option<BasicMessage> = app_state.db.create(("messages", message_id.clone()))
+                                        .content(BasicMessage {
                                             message_id,
                                             content,
                                             timestamp,
-                                            ws_id,
                                             sender_id: sender_id.clone(),
                                             room_id: room_id.clone(),
-                                            message_type: MessageTypes::Basic,
+                                            ws_id,
                                         })
                                         .await.expect("Failed to upload message to db");
-
-                                    let serialized_msg = serde_json::to_string(&message).unwrap();
+    
+                                    let serialized_msg = serde_json::to_string(&UserMessage::Basic(basic_message)).unwrap();
                                     app_state.broadcast_message(serialized_msg, room_id, sender_id.clone()).await;
                                 });
+                            } else {
+                                println!("Invalid Access")
                             }
+
+                        },
+                        UserMessage::UsernameChange(username_change_message) => {
+                            let new_username = username_change_message.new_username;
+                            let username = self.username.clone();
+                            let db = self.state.db.clone();
+                            let actor_addr = ctx.address();
+                            let state = self.state.clone();
+                            let user_id = self.user_id.clone();
+                            ctx.spawn(actix::fut::wrap_future(check_and_update_username(db, user_id, username, new_username, actor_addr, state)));
+                        },
+                        UserMessage::CreateRoomChange(create_room_change_message) => {
+                            let room_id = Uuid::new_v4().to_string().replace('-', "");
+                            let room_name = create_room_change_message.room_name;
+                            let app_state = self.state.clone();
+                            self.rooms.push(room_id.clone());
+                            let mut users = HashSet::new();
+                            users.insert(self.user_id.clone());
+                            actix::spawn(async move {
+                                let _ : Vec<Room> = app_state.db.create("rooms")
+                                    .content(Room {
+                                        name: room_name,
+                                        room_id,
+                                        users,
+                                    })
+                                    .await.expect("Failed to create room");
+                            });
+                        },
+                        UserMessage::ChangeRoom(change_room_message) => {
+                            let room_id = change_room_message.room_id;
+                            let app_state = self.state.clone();
+                            let actor_addr = ctx.address().clone();
+                            ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr, room_id)));
+                        },
+                        UserMessage::UserRemoval(user_removal_message) => {
+                            let room_id = user_removal_message.room_id;
+                            let removed_user = user_removal_message.removed_user;
+                            let app_state = self.state.clone();
+                            actix::spawn(async move {
+                                let query =  "UPDATE rooms SET users -= $removed_user WHERE room_id = $room_id;";
+                                if let Err(e) = app_state.db.query(query)
+                                    .bind(("removed_user", removed_user))
+                                    .bind(("room_id", room_id))
+                                    .await {
+                                    eprintln!("Error removing from room: {:?}", e);
+                                }
+                            });
                         }
+                        _ => {}
                     }
                 }
                 Err(e) => eprintln!("Error processing message: {:?}", e),
@@ -336,6 +317,7 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
         }
     }
 }
+
 
 pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: web::Data<AppState>, session: Session) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
