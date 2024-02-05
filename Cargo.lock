@@ -918,6 +918,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "local-ip-address",
+ "log",
  "names",
  "parking_lot",
  "rand",

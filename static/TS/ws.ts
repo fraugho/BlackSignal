@@ -276,21 +276,40 @@ if (textarea) {
     });
 }
 
+function sendUsernameChange(new_username: string): void {
+    const usernameChangeMessage: UsernameChangeMessage = {
+        new_username: new_username,
+        sender_id: sender_id,
+    };
+    
+    fetch('/change_username', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ UsernameChange: usernameChangeMessage }) // Assuming your server expects a payload with a key corresponding to the message type
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Handle the response data
+        console.log("Username change successful:", data);
+    })
+    .catch(error => {
+        console.error('There has been a problem with your fetch operation:', error);
+    });
+}
+
 document.getElementById('Username')!.addEventListener('submit', function(event: Event) {
     event.preventDefault();
     const usernameField: HTMLInputElement = document.getElementById('usernameField')! as HTMLInputElement;
     const new_username: string = usernameField.value.trim();
     if (new_username !== '') {
-        const usernameChangeMessage: UsernameChangeMessage = {
-            new_username: new_username,
-            sender_id: sender_id
-        };
-        const wrappedMessage: UserMessage = {
-            UsernameChange: usernameChangeMessage
-        };
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(wrappedMessage));
-        }
+        sendUsernameChange(new_username);
     }
 });
 
@@ -300,16 +319,7 @@ document.getElementById('Username')!.addEventListener('keydown', function(event:
         const usernameField: HTMLInputElement = document.getElementById('usernameField')! as HTMLInputElement;
         const new_username: string = usernameField.value.trim();
         if (new_username !== '') {
-            const usernameChangeMessage: UsernameChangeMessage = {
-                new_username: new_username,
-                sender_id: sender_id
-            };
-            const wrappedMessage: UserMessage = {
-                UsernameChange: usernameChangeMessage
-            };
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify(wrappedMessage));
-            }
+            sendUsernameChange(new_username);
         }
     }
 });
