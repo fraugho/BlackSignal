@@ -23,7 +23,7 @@ mod message_structs;
 
 use structs::{Room, ConnectionState, LoginForm, UserData};
 use message_structs::*;
-use websocket::ws_index;
+use websocket::*;
 use appstate::AppState;
 
 #[get("/logout")]
@@ -49,30 +49,28 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
     let login = form.into_inner();
     if state.valid_user_credentials(&login).await {
         let mut generator = Generator::with_naming(Name::Numbered);
-        let hashed_password = hash(login.password.clone(), DEFAULT_COST).unwrap();
-        let user_id = Uuid::new_v4().to_string().replace('-', "");
-        let username = generator.next().unwrap().replace('-', "");
-        let _: Vec<UserData> = state.db.create("users").content(
-            UserData {
-                user_id: user_id.clone(),
-                login_username: login.username.clone(),
-                username: username.clone(),
-                hashed_password,
-                status: ConnectionState::Online,
-                rooms: vec![state.main_room_id.clone()],
-            }
-        ).await.expect("Failed to create user");
+
+        let user_data = UserData{
+            user_id: Uuid::new_v4().to_string().replace('-', ""),
+            hashed_password: hash(login.password.clone(), DEFAULT_COST).unwrap(),
+            login_username: login.username,
+            username: generator.next().unwrap().replace('-', ""),
+            status: ConnectionState::Online,
+            rooms: vec![state.main_room_id.clone()],
+
+        };
+        let _: Vec<UserData> = state.db.create("users").content(user_data.clone()).await.expect("Failed to create user");
 
         let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
-        if let Err(e) = state.db.query(query).bind(("user_id", user_id.clone())).bind(("room_id", state.main_room_id.clone())).await {
+        if let Err(e) = state.db.query(query).bind(("user_id", user_data.user_id.clone())).bind(("room_id", state.main_room_id.clone())).await {
             eprintln!("Error adding to room: {:?}", e);
         }
 
-        let message = UserMessage::NewUser(NewUserMessage::new(user_id.clone(), username.clone()));
+        let message = UserMessage::NewUser(NewUserMessage::new(user_data.user_id.clone(), user_data.username));
         let serialized_message = serde_json::to_string(&message).unwrap();
 
-        state.broadcast_message(serialized_message, state.main_room_id.clone(), user_id.clone()).await;
-        session.insert("key", user_id).unwrap();
+        state.broadcast_message(serialized_message, state.main_room_id.clone(), user_data.user_id.clone()).await;
+        session.insert("key", user_data.user_id).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
         HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
@@ -121,6 +119,21 @@ async fn upload(upload: web::Json<Image>, session: Session) -> impl Responder {
     let mut image_file = std::fs::File::create(image_path).expect("Failed to create image file");
     image_file.write_all(&image_data.data).expect("Failed to write image data to file");
     HttpResponse::Ok()
+}
+
+#[post("/change_username")]
+async fn change_username(username_change: web::Json<UserMessage>, session: Session, state: web::Data<AppState>) -> impl Responder {
+    let arc_state: Arc<AppState> = state.into_inner();
+    if let UserMessage::UsernameChange(msg) = username_change.into_inner() { 
+        let user_id = session.get::<String>("user_id").expect("Failed to get user_id from session").unwrap();
+        let current_username = session.get::<String>("username").expect("Failed to get username from session").unwrap();
+        check_and_update_username(user_id, current_username, msg.new_username, arc_state)
+           .await;
+
+        HttpResponse::Ok().finish()
+    } else {
+        HttpResponse::BadRequest().body("Invalid message format for username change.")
+    }
 }
 
 #[get("/get-image/{filename}")]
@@ -188,7 +201,7 @@ async fn main() -> std::io::Result<()> {
         }).await.expect("Failed making test user data");
 
     let mut users = HashSet::new();
-    users.insert(user_id.clone());
+    users.insert(user_id);
 
     let _ : Vec<Room> = db.create("rooms")
         .content(Room {

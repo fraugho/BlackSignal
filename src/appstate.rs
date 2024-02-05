@@ -4,7 +4,6 @@ use surrealdb::engine::remote::ws::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use validator::Validate;
-use serde_json::json;
 use crate::structs::{Room, UserData, LoginForm};
 use crate::message_structs::*;
 use crate::websocket::{WsActor, WsMessage};
@@ -39,7 +38,7 @@ impl AppState {
             }
         }
     }
-    
+
     pub async fn catch_up(&self, room_id: &str) -> Result<Vec<UserMessage>> {
         let query = "SELECT * FROM messages WHERE room_id = $room_id ORDER BY timestamp ASC;";
         let mut response = self.db.query(query).bind(("room_id", room_id))

@@ -10,7 +10,6 @@ use uuid::Uuid;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use serde_json::json;
 use crate::appstate::AppState;
 use crate::structs::{Room, User, UserData};
 use crate::message_structs::*;
@@ -76,8 +75,7 @@ impl Actor for WsActor {
     fn started(&mut self, ctx: &mut Self::Context) {
         //registers ws actor
         let mut actor_registry = self.state.actor_registry.lock().unwrap();
-        let db = self.state.db.clone();
-        match actor_registry.get_mut(&self.user_id.clone()) {
+        match actor_registry.get_mut(&self.user_id) {
             Some(hashmap) => {
                 hashmap.insert(self.ws_id.clone(), ctx.address());
             },
@@ -87,15 +85,13 @@ impl Actor for WsActor {
                 actor_registry.insert(self.user_id.clone(), hashmap);
             },
         }
+        let db = self.state.db.clone();
         let app_state = self.state.clone();
         let room_id = self.current_room.clone();
-        let actor_addr = ctx.address();
         let user_id = self.user_id.clone();
-        let actor_addr_clone = actor_addr.clone();
-        let actor_addr_clone2 = actor_addr.clone();
         let user_info = UserInfo::new(self.user_id.clone(), self.ws_id.clone(), self.username.clone());
-        ctx.spawn(actix::fut::wrap_future(get_users(db.clone(), actor_addr_clone, room_id.clone(), user_info)));
-        ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr_clone2, room_id)));
+        ctx.spawn(actix::fut::wrap_future(get_users(db.clone(), ctx.address(), room_id.clone(), user_info)));
+        ctx.spawn(actix::fut::wrap_future(get_messages(app_state, ctx.address(), room_id)));
         ctx.spawn(actix::fut::wrap_future(change_to_online(db, user_id)));
     }
 
@@ -127,21 +123,6 @@ impl Handler<WsMessage> for WsActor {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct UpdateUsernameMsg(String);
-
-impl Message for UpdateUsernameMsg {
-    type Result = ();
-}
-
-impl Handler<UpdateUsernameMsg> for WsActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateUsernameMsg, ctx: &mut Self::Context) -> Self::Result {
-        self.username = msg.0;
-    }
-}
-
 pub async fn get_users(db: Arc<Surreal<Client>>, actor_addr: Addr<WsActor>, room_id: String, user_info: UserInfo) {
     let query = "SELECT user_id, username FROM users WHERE $room_id IN rooms;";
     let mut response = db.query(query)
@@ -156,22 +137,21 @@ pub async fn get_users(db: Arc<Surreal<Client>>, actor_addr: Addr<WsActor>, room
     actor_addr.do_send(WsMessage(serialized));
 }
 
-pub async fn check_and_update_username(db: Arc<Surreal<Client>>, user_id: String, current_username: String, new_username: String, actor_addr: Addr<WsActor>, state: Arc<AppState>) {
+pub async fn check_and_update_username(user_id: String, current_username: String, new_username: String, state: Arc<AppState>) {
     let query = "SELECT username FROM users WHERE username = $username;";
-    if let Ok(mut response) = db.query(query).bind(("username", new_username.clone())).await {
-        let x: Option<String> = response.take((0, "username")).expect("Failed to get user data: fn check_and_update_username");
-        match x {
+    if let Ok(mut response) = state.db.query(query).bind(("username", new_username.clone())).await {
+        let result: Option<String> = response.take((0, "username")).expect("Failed to get user data: fn check_and_update_username");
+        match result {
             Some(_) => println!("Username already used"),
             None =>  {
                 let query = "UPDATE users SET username = $new_username WHERE username = $username;";
-                db.query(query)
+                state.db.query(query)
                     .bind(("new_username", new_username.clone()))
-                    .bind(("username", current_username.clone()))
+                    .bind(("username", current_username))
                     .await.expect("Failed to update username");
                 let message = UserMessage::UsernameChange(UsernameChangeMessage::new(user_id.clone(), new_username.clone()));
                 let serialized_msg = serde_json::to_string(&message).unwrap();
-                state.broadcast_message(serialized_msg, state.main_room_id.clone(), user_id.clone()).await;
-                actor_addr.do_send(UpdateUsernameMsg(new_username));
+                state.broadcast_message(serialized_msg, state.main_room_id.clone(), user_id).await;
             }
         }
     } else {
@@ -188,26 +168,21 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                         UserMessage::Basic(basic_message) => {
                             if basic_message.sender_id == self.user_id {
                                 let app_state = self.state.clone();
-                                let sender_id = basic_message.sender_id.clone();
-                                let content = basic_message.content.clone();
-                                let room_id = self.current_room.clone();
-                                let ws_id = self.ws_id.clone();
                                 let now = Utc::now();
-                                let timestamp = now.timestamp() as u64;
-                                let message_id = Uuid::new_v4().to_string().replace('-', "");
+                                let basic_message = BasicMessage {
+                                    content: basic_message.content, 
+                                    sender_id: basic_message.sender_id, 
+                                    timestamp: now.timestamp() as u64, 
+                                    message_id: Uuid::new_v4().to_string().replace('-', ""), 
+                                    room_id: self.current_room.clone(), 
+                                    ws_id: self.ws_id.clone()
+                                };
                                 actix::spawn(async move {
-                                    let _: Option<BasicMessage> = app_state.db.create(("messages", message_id.clone()))
-                                        .content(BasicMessage {
-                                            message_id,
-                                            content,
-                                            timestamp,
-                                            sender_id: sender_id.clone(),
-                                            room_id: room_id.clone(),
-                                            ws_id,
-                                        })
+                                    let _: Option<BasicMessage> = app_state.db.create(("messages", basic_message.message_id.clone()))
+                                        .content(basic_message.clone())
                                         .await.expect("Failed to upload message to db");
-                                    let serialized_msg = serde_json::to_string(&UserMessage::Basic(basic_message)).unwrap();
-                                    app_state.broadcast_message(serialized_msg, room_id, sender_id.clone()).await;
+                                    let serialized_msg = serde_json::to_string(&UserMessage::Basic(basic_message.clone())).unwrap();
+                                    app_state.broadcast_message(serialized_msg, basic_message.room_id, basic_message.sender_id).await;
                                 });
                             } else {
                                 println!("Invalid Access")
@@ -216,11 +191,9 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                         UserMessage::UsernameChange(username_change_message) => {
                             let new_username = username_change_message.new_username;
                             let username = self.username.clone();
-                            let db = self.state.db.clone();
-                            let actor_addr = ctx.address();
                             let state = self.state.clone();
                             let user_id = self.user_id.clone();
-                            ctx.spawn(actix::fut::wrap_future(check_and_update_username(db, user_id, username, new_username, actor_addr, state)));
+                            ctx.spawn(actix::fut::wrap_future(check_and_update_username( user_id, username, new_username, state)));
                         },
                         UserMessage::CreateRoomChange(create_room_change_message) => {
                             let room_id = Uuid::new_v4().to_string().replace('-', "");
@@ -246,14 +219,12 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                             ctx.spawn(actix::fut::wrap_future(get_messages(app_state, actor_addr, room_id)));
                         },
                         UserMessage::UserRemoval(user_removal_message) => {
-                            let room_id = user_removal_message.room_id;
-                            let removed_user = user_removal_message.removed_user;
                             let app_state = self.state.clone();
                             actix::spawn(async move {
                                 let query =  "UPDATE rooms SET users -= $removed_user WHERE room_id = $room_id;";
                                 if let Err(e) = app_state.db.query(query)
-                                    .bind(("removed_user", removed_user))
-                                    .bind(("room_id", room_id))
+                                    .bind(("removed_user", user_removal_message.removed_user))
+                                    .bind(("room_id", user_removal_message.room_id))
                                     .await {
                                     eprintln!("Error removing from room: {:?}", e);
                                 }
@@ -274,7 +245,7 @@ pub async fn ws_index(req: actix_web::HttpRequest, stream: web::Payload, state: 
         let query = "SELECT * FROM users WHERE user_id = $user_id;";
         let mut response = state.db.query(query)
             .bind(("user_id", user_id.clone()))
-            .await.expect("aaaah");
+            .await.expect("Error in Finding User");
         let user_query: Option<UserData> = response.take(0).expect("Failed to get user data: fn ws_index");
         match user_query {
             Some(user) => {
