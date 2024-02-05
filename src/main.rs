@@ -59,11 +59,17 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
             rooms: vec![state.main_room_id.clone()],
 
         };
-        let _: Vec<UserData> = state.db.create("users").content(user_data.clone()).await.expect("Failed to create user");
+        let _: Vec<UserData> = match state.db.create("users").content(user_data.clone())
+            .await {
+            Ok(created) => created,
+            Err(e) => {log::error!("Failed to get user data: fn create_login_action, error: {:?}", e);
+            return HttpResponse::InternalServerError().body("Internal server error: Failed to create user data.")}
+        };
 
         let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
         if let Err(e) = state.db.query(query).bind(("user_id", user_data.user_id.clone())).bind(("room_id", state.main_room_id.clone())).await {
-            eprintln!("Error adding to room: {:?}", e);
+            log::error!("Error adding to room: {:?}", e);
+            return HttpResponse::InternalServerError().body("Internal server error: Failed to add user to room in db: fn create_login_action")
         }
 
         let message = UserMessage::NewUser(NewUserMessage::new(user_data.user_id.clone(), user_data.username));
@@ -130,20 +136,18 @@ async fn change_username(username_change: web::Json<UserMessage>, session: Sessi
             _ => return HttpResponse::BadRequest().body("Failed to get user_id from session"),
         };
         let query = "SELECT * FROM users WHERE user_id = $user_id;";
-
         if let Ok(mut response) = state.db.query(query).bind(("user_id", user_id.clone())).await{
             let user_query: Option<UserData> = match response.take(0) {
                 Ok(data) => data,
                 Err(e) => {
-                    log::error!("Failed to get user data: fn ws_index, error: {:?}", e);
+                    log::error!("Failed to get user data: fn change_username, error: {:?}", e);
                     return HttpResponse::InternalServerError().body("Internal server error: Failed to retrieve user data.");
                 }
             };
             
             let user_data = user_query.unwrap();
             match check_and_update_username(user_id, user_data.username, message.new_username.clone(), arc_state, UserMessage::UsernameChange(message))
-                .await
-                {
+                .await {
                 Some(error) => HttpResponse::BadRequest().body(error),
                 None => HttpResponse::Ok().finish()
             }
@@ -193,12 +197,25 @@ async fn home_page(session: Session) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let db = Surreal::new::<Ws>("localhost:8000").await.expect("Unable to connect to db");
-    db.signin(Root {
+    let db = match Surreal::new::<Ws>("localhost:8000").await {
+        Ok(connected) => connected,
+        Err(e) => {log::error!("Failed to connect to database: fn main, error: {:?}", e);
+        return Ok(())}
+    };
+    match db.signin(Root {
         username: "root",
         password: "root",
-    }).await.expect("Unable to Login to DB");
-    db.use_ns("general").use_db("all").await.expect("Not able to use ns of db");
+    }).await {
+        Ok(connected) => connected,
+        Err(e) => {log::error!("Failed to login to database: fn main, error: {:?}", e);
+        return Ok(())}
+    };
+    match db.use_ns("general").use_db("all")
+        .await {
+        Ok(connected) => connected,
+        Err(e) => {log::error!("Failed use namespace of database: fn main, error: {:?}", e);
+        return Ok(())}
+    };
 
     let hashed_password = match hash("password", DEFAULT_COST) {
         Ok(hashed) => hashed,
@@ -209,7 +226,7 @@ async fn main() -> std::io::Result<()> {
     let user_id = Uuid::new_v4().to_string().replace('-', "");
 
     // Create test user
-    let _: Option<UserData> = db.create(("users", "test"))
+    let _: Option<UserData> = match db.create(("users", "test"))
         .content(UserData {
             user_id: user_id.clone(),
             login_username: "test@gmail.com".to_string(),
@@ -217,18 +234,26 @@ async fn main() -> std::io::Result<()> {
             hashed_password,
             status: ConnectionState::Online,
             rooms: vec![main_room_id.clone()],
-        }).await.expect("Failed making test user data");
+        }).await {
+            Ok(created) => created,
+            Err(e) => {log::error!("Failed to create test user data: fn main, error: {:?}", e);
+            return Ok(())}
+        };
 
     let mut users = HashSet::new();
     users.insert(user_id);
 
-    let _ : Vec<Room> = db.create("rooms")
+    let _ : Vec<Room> = match db.create("rooms")
         .content(Room {
             name: "main".to_string(),
             room_id: main_room_id.clone(),
             users,
         })
-        .await.expect("Failed to create test room");
+        .await {
+            Ok(created) => created,
+            Err(e) => {log::error!("Failed to create room data: fn main, error: {:?}", e);
+            return Ok(())}
+        };
 
     let app_state = web::Data::new(AppState {
         db: Arc::new(db),
