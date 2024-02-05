@@ -137,25 +137,25 @@ pub async fn get_users(db: Arc<Surreal<Client>>, actor_addr: Addr<WsActor>, room
     actor_addr.do_send(WsMessage(serialized));
 }
 
-pub async fn check_and_update_username(user_id: String, current_username: String, new_username: String, state: Arc<AppState>) {
+pub async fn check_and_update_username(user_id: String, current_username: String, new_username: String, state: Arc<AppState>, message: UserMessage) -> Option<String> {
     let query = "SELECT username FROM users WHERE username = $username;";
     if let Ok(mut response) = state.db.query(query).bind(("username", new_username.clone())).await {
         let result: Option<String> = response.take((0, "username")).expect("Failed to get user data: fn check_and_update_username");
         match result {
-            Some(_) => println!("Username already used"),
+            Some(_) => Some("Username Already In Use".to_string()),
             None =>  {
                 let query = "UPDATE users SET username = $new_username WHERE username = $username;";
                 state.db.query(query)
                     .bind(("new_username", new_username.clone()))
                     .bind(("username", current_username))
                     .await.expect("Failed to update username");
-                let message = UserMessage::UsernameChange(UsernameChangeMessage::new(user_id.clone(), new_username.clone()));
                 let serialized_msg = serde_json::to_string(&message).unwrap();
                 state.broadcast_message(serialized_msg, state.main_room_id.clone(), user_id).await;
+                None
             }
         }
     } else {
-        eprintln!("Failed to query database");
+       Some("Failed to query database".to_string())
     }
 }
 
@@ -187,13 +187,6 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                             } else {
                                 println!("Invalid Access")
                             }
-                        },
-                        UserMessage::UsernameChange(username_change_message) => {
-                            let new_username = username_change_message.new_username;
-                            let username = self.username.clone();
-                            let state = self.state.clone();
-                            let user_id = self.user_id.clone();
-                            ctx.spawn(actix::fut::wrap_future(check_and_update_username( user_id, username, new_username, state)));
                         },
                         UserMessage::CreateRoomChange(create_room_change_message) => {
                             let room_id = Uuid::new_v4().to_string().replace('-', "");

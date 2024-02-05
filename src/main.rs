@@ -123,14 +123,33 @@ async fn upload(upload: web::Json<Image>, session: Session) -> impl Responder {
 
 #[post("/change_username")]
 async fn change_username(username_change: web::Json<UserMessage>, session: Session, state: web::Data<AppState>) -> impl Responder {
-    let arc_state: Arc<AppState> = state.into_inner();
-    if let UserMessage::UsernameChange(msg) = username_change.into_inner() { 
-        let user_id = session.get::<String>("user_id").expect("Failed to get user_id from session").unwrap();
-        let current_username = session.get::<String>("username").expect("Failed to get username from session").unwrap();
-        check_and_update_username(user_id, current_username, msg.new_username, arc_state)
-           .await;
+    let arc_state: Arc<AppState> = state.clone().into_inner();
+    if let UserMessage::UsernameChange(message) = username_change.into_inner() { 
+        let user_id = match session.get::<String>("key") {
+            Ok(Some(id)) => id,
+            _ => return HttpResponse::BadRequest().body("Failed to get user_id from session"),
+        };
+        let query = "SELECT * FROM users WHERE user_id = $user_id;";
 
-        HttpResponse::Ok().finish()
+        if let Ok(mut response) = state.db.query(query).bind(("user_id", user_id.clone())).await{
+            let user_query: Option<UserData> = match response.take(0) {
+                Ok(data) => data,
+                Err(e) => {
+                    log::error!("Failed to get user data: fn ws_index, error: {:?}", e);
+                    return HttpResponse::InternalServerError().body("Internal server error: Failed to retrieve user data.");
+                }
+            };
+            
+            let user_data = user_query.unwrap();
+            match check_and_update_username(user_id, user_data.username, message.new_username.clone(), arc_state, UserMessage::UsernameChange(message))
+                .await
+                {
+                Some(error) => HttpResponse::BadRequest().body(error),
+                None => HttpResponse::Ok().finish()
+            }
+        } else {
+            HttpResponse::BadRequest().body("Database Error")
+        }
     } else {
         HttpResponse::BadRequest().body("Invalid message format for username change.")
     }
@@ -237,6 +256,7 @@ async fn main() -> std::io::Result<()> {
             .service(create_login_page)
             .service(create_login_action)
             .service(logout)
+            .service(change_username)
             .service(get_ip)
             .service(Files::new("/Images", "./Images"))
             .service(get_image)
