@@ -8,6 +8,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var _a, _b;
 let sender_id = "";
 let user_map = {};
 let ws_id = "";
@@ -27,7 +28,7 @@ var MessageType;
     MessageType["UsernameChange"] = "UsernameChange";
     MessageType["CreateRoomChange"] = "CreateRoomChange";
     MessageType["Initialization"] = "Initialization";
-    MessageType["DeleteMessage"] = "DeleteMessage";
+    MessageType["Deletion"] = "Deletion";
 })(MessageType || (MessageType = {}));
 fetch('/get-ip')
     .then(response => response.json())
@@ -62,8 +63,8 @@ function initializeWebSocket(server_ip) {
             case 'Typing' in data:
                 handleTypingMessage(data.Typing);
                 break;
-            case 'DeleteMessage' in data:
-                handleMessageDeletionMessage(data.DeleteMessage);
+            case 'Deletion' in data:
+                handleMessageDeletionMessage(data.Deletion);
                 break;
             case 'NewUser' in data:
                 handleNewUserMessage(data.NewUser);
@@ -96,32 +97,78 @@ function handleInitialization(init_message) {
 }
 function handleBasicMessage(basic_message) {
     if (basic_message.ws_id === ws_id) {
+        const chatContainer = document.getElementById('chat-container');
+        const sentContainers = chatContainer.getElementsByClassName('sent-container');
+        if (sentContainers.length > 0) {
+            const lastSentContainer = sentContainers[sentContainers.length - 1];
+            lastSentContainer.setAttribute('data-message-id', basic_message.message_id);
+        }
         return;
     }
     const chatContainer = document.getElementById('chat-container');
+    const messageContainer = document.createElement('div');
     const messageWrapper = document.createElement('div');
     const usernameElement = document.createElement('div');
     const messageElement = document.createElement('div');
-    if (user_map[basic_message.sender_id] === null) {
-        usernameElement.textContent = 'DeletedAccount:';
-    }
-    else {
-        usernameElement.textContent = user_map[basic_message.sender_id] + ':';
-    }
+    messageContainer.classList.add('message-container');
+    messageContainer.setAttribute('data-message-id', basic_message.message_id);
+    messageWrapper.classList.add('chat-message');
+    messageWrapper.setAttribute('data-message-id', basic_message.message_id);
+    usernameElement.textContent = user_map[basic_message.sender_id] !== null ? user_map[basic_message.sender_id] + ':' : 'DeletedAccount:';
     usernameElement.classList.add('username');
     messageElement.textContent = basic_message.content;
     messageWrapper.appendChild(usernameElement);
     messageWrapper.appendChild(messageElement);
-    messageWrapper.classList.add('chat-message');
     if (basic_message.sender_id === sender_id) {
         messageWrapper.classList.add('sent-message');
+        messageContainer.classList.add('sent-container');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.classList.add('delete-checkbox');
+        checkbox.style.display = isDeleteMode ? 'inline-block' : 'none';
+        messageContainer.appendChild(checkbox);
     }
     else {
         messageWrapper.classList.add('received-message');
+        messageContainer.classList.add('received-container');
     }
-    chatContainer.appendChild(messageWrapper);
+    messageContainer.appendChild(messageWrapper);
+    chatContainer.appendChild(messageContainer);
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
+let isDeleteMode = false; // Keeps track of whether delete mode is active
+// Add this after the WebSocket initialization
+(_a = document.getElementById('toggle-delete-mode')) === null || _a === void 0 ? void 0 : _a.addEventListener('click', () => {
+    isDeleteMode = !isDeleteMode;
+    // Update the checkbox visibility
+    const checkboxes = document.querySelectorAll('.delete-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.style.display = isDeleteMode ? 'block' : 'none';
+    });
+    // Optionally change the button text to indicate the mode
+    const toggleDeleteButton = document.getElementById('toggle-delete-mode');
+    toggleDeleteButton.textContent = isDeleteMode ? 'Exit Delete Mode' : 'Enter Delete Mode';
+    // Show/hide the delete selected messages button
+    const deleteSelectedButton = document.getElementById('delete-selected-messages');
+    deleteSelectedButton.style.display = isDeleteMode ? 'block' : 'none';
+});
+(_b = document.getElementById('delete-selected-messages')) === null || _b === void 0 ? void 0 : _b.addEventListener('click', () => {
+    var _a;
+    const selectedCheckboxes = document.querySelectorAll('.delete-checkbox:checked');
+    selectedCheckboxes.forEach(checkbox => {
+        const messageContainer = checkbox.closest('.message-container');
+        if (messageContainer) {
+            const messageId = messageContainer.getAttribute('data-message-id');
+            if (messageId) {
+                deleteMessage(messageId);
+                messageContainer.remove();
+            }
+        }
+    });
+    if (isDeleteMode) {
+        (_a = document.getElementById('toggle-delete-mode')) === null || _a === void 0 ? void 0 : _a.click();
+    }
+});
 function handleImageMessage(imageMessage) { }
 function handleNotificationMessage(notificationMessage) { }
 function handleTypingMessage(typingMessage) { }
@@ -131,7 +178,16 @@ function handleNewUserMessage(new_user_message) {
 function handleUserAdditionMessage(user_addition_message) { }
 function handleUserRemovalMessage(userRemovalMessage) { }
 function handleChangeRoomMessage(changeRoomMessage) { }
-function handleMessageDeletionMessage(message) { }
+function handleMessageDeletionMessage(message) {
+    // Extract the message_id from the deletion message
+    const messageId = message.message_id;
+    // Find the message element in the DOM
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    // If the element exists, remove it
+    if (messageElement) {
+        messageElement.remove();
+    }
+}
 function handleUsernameChangeMessage(username_change_message) {
     retroactivelyChangeUsername(user_map[username_change_message.sender_id], username_change_message.new_username);
     user_map[username_change_message.sender_id] = username_change_message.new_username;
@@ -165,7 +221,7 @@ function sendMessage() {
     const textarea = document.querySelector('textarea[name="message_form"]');
     const messageContent = textarea.value.trim();
     if (messageContent !== '') {
-        const basicMessage = {
+        const basic_message = {
             content: messageContent,
             sender_id: sender_id,
             message_id: "",
@@ -174,23 +230,30 @@ function sendMessage() {
             timestamp: Date.now(),
         };
         const wrappedMessage = {
-            Basic: basicMessage
+            Basic: basic_message
         };
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify(wrappedMessage));
         }
         const chatContainer = document.getElementById('chat-container');
+        const messageContainer = document.createElement('div');
         const messageWrapper = document.createElement('div');
         const usernameElement = document.createElement('div');
         const messageElement = document.createElement('div');
-        usernameElement.textContent = (username) + ':';
+        messageContainer.classList.add('message-container', 'sent-container');
+        messageWrapper.classList.add('chat-message', 'sent-message');
+        usernameElement.textContent = username + ':';
         usernameElement.classList.add('username');
-        messageElement.textContent = textarea.value.trim();
+        messageElement.textContent = messageContent;
         messageWrapper.appendChild(usernameElement);
         messageWrapper.appendChild(messageElement);
-        messageWrapper.classList.add('chat-message');
-        messageWrapper.classList.add('sent-message');
-        chatContainer.appendChild(messageWrapper);
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.classList.add('delete-checkbox');
+        checkbox.style.display = 'none';
+        messageContainer.appendChild(checkbox);
+        messageContainer.appendChild(messageWrapper);
+        chatContainer.appendChild(messageContainer);
         chatContainer.scrollTop = chatContainer.scrollHeight;
         textarea.value = '';
     }
@@ -271,6 +334,18 @@ document.getElementById('Username').addEventListener('keydown', function (event)
         }
     }
 });
+function deleteMessage(message_id) {
+    const message = {
+        sender_id: sender_id,
+        message_id: message_id
+    };
+    const wrapped_message = {
+        Deletion: message
+    };
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(wrapped_message));
+    }
+}
 document.querySelector('input[type="file"][name="image"]').addEventListener('change', function (event) {
     const input = event.target;
     if (input.files && input.files.length > 0) {
