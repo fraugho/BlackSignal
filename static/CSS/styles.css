@@ -314,7 +314,7 @@ body {
     {
       left: 0px;
     }
-    .navbar:hover .username_form button{
+    .navbar:hover .username_form{
         width: 16rem;
     }
   }
@@ -357,25 +357,21 @@ body {
   }
   
   .username_form {
-    position: absolute;         
-    bottom: 0px;             
-    left: 0%;               
-    display: grid;
-    grid-template-columns: 1fr; 
-    grid-template-rows: auto auto; 
+    position: absolute;
+    bottom: 0px;
+    left: 0%;
+    display: flex;
+    flex-direction: column;
     background-color: #000000;
     color: #ffffff;
     width: 5rem;
-    
-
 }
 
 .username_form textarea {
     background-color: #000000;
     color: #ffffff;
     border: 1px solid #ffffff;
-    grid-row: 2;  
-    height: 50px;   
+    height: 50px;
     transition: width 600ms ease;
 }
 
@@ -384,10 +380,10 @@ body {
     color: #ffffff;
     border: 1px solid #ffffff;
     cursor: pointer;
-    grid-row: 1;   
     height: 50px;
-    transition: width 600ms ease; 
+    transition: width 600ms ease;
 }
+
 
 .username_form button:hover {
     background-color: #B3B6B7;
@@ -429,7 +425,7 @@ body {
 }
 
 
-button.delete_mode {
+.delete_mode{
   position: absolute;
   background-color: #000000;
   color: #ffffff;
@@ -438,7 +434,11 @@ button.delete_mode {
   width: 100px;
 }
 
-button.delete_mode:hover {
+.delete_mode button{
+  height: 2rem;
+}
+
+.delete_mode button:hover{
   background-color: #B3B6B7;
   color: #000000;
 }

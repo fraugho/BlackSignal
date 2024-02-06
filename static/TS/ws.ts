@@ -171,6 +171,12 @@ function handleInitialization(init_message: InitMessage) {
 
 function handleBasicMessage(basic_message: BasicMessage) {
     if (basic_message.ws_id === ws_id) {
+        const chatContainer = document.getElementById('chat-container')!;
+        const sentContainers = chatContainer.getElementsByClassName('sent-container');
+        if (sentContainers.length > 0) {
+            const lastSentContainer = sentContainers[sentContainers.length - 1];
+            lastSentContainer.setAttribute('data-message-id', basic_message.message_id);
+        }
         return;
     }
     
@@ -236,19 +242,13 @@ document.getElementById('toggle-delete-mode')?.addEventListener('click', () => {
 
 document.getElementById('delete-selected-messages')?.addEventListener('click', () => {
     const selectedCheckboxes = document.querySelectorAll('.delete-checkbox:checked') as NodeListOf<HTMLInputElement>;
-    console.log(`Found ${selectedCheckboxes.length} messages to delete.`);
 
     selectedCheckboxes.forEach(checkbox => {
         const messageContainer = checkbox.closest('.message-container');
-        console.log("1");
         if (messageContainer) {
-            console.log("2");
             const messageId = messageContainer.getAttribute('data-message-id');
             if (messageId) {
-                console.log("3");
-                console.log(`Deleting message with ID: ${messageId}`);
                 deleteMessage(messageId);
-                console.log(messageContainer);
                 messageContainer.remove();
             }
         }
@@ -279,8 +279,6 @@ function handleMessageDeletionMessage(message: DeletionMessage) {
     // If the element exists, remove it
     if (messageElement) {
         messageElement.remove();
-    } else {
-        console.log(`Message with ID ${messageId} not found.`);
     }
 }
 function handleUsernameChangeMessage(username_change_message: UsernameChangeMessage) {
@@ -320,7 +318,7 @@ function sendMessage(): void {
     const textarea: HTMLTextAreaElement = document.querySelector('textarea[name="message_form"]')!;
     const messageContent: string = textarea.value.trim();
     if (messageContent !== '') {
-        const basicMessage: BasicMessage = {
+        const basic_message: BasicMessage = {
             content: messageContent,
             sender_id: sender_id,
             message_id: "",
@@ -330,7 +328,7 @@ function sendMessage(): void {
         };
     
         const wrappedMessage: UserMessage = {
-            Basic: basicMessage
+            Basic: basic_message
         };
     
         if (socket.readyState === WebSocket.OPEN) {
@@ -450,7 +448,6 @@ document.getElementById('Username')!.addEventListener('keydown', function(event:
 });
 
 function deleteMessage(message_id: string): void {
-    console.log(`Attempting to delete message with ID: ${message_id}`); // Confirm function is called
 
     const message: DeletionMessage = {
         sender_id: sender_id,
@@ -461,13 +458,9 @@ function deleteMessage(message_id: string): void {
         Deletion: message
     };
 
-    console.log(`WebSocket ready state: ${socket.readyState}`); // Check WebSocket state
 
     if (socket.readyState === WebSocket.OPEN) {
-        console.log(`Sending deletion request for message ID: ${message_id}`, wrapped_message); // Log the message being sent
         socket.send(JSON.stringify(wrapped_message));
-    } else {
-        console.error("WebSocket is not open. Cannot send message.");
     }
 }
 
