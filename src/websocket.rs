@@ -3,7 +3,7 @@ use crate::message_structs::*;
 use crate::structs::{Room, User, UserData};
 use actix::{Actor, Addr, AsyncContext, Handler, StreamHandler};
 use actix_session::Session;
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpResponse, Error};
 use actix_web_actors::ws;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
@@ -11,6 +11,7 @@ use std::sync::Arc;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 use uuid::Uuid;
+use serde_json::json;
 
 pub async fn get_messages(
     app_state: Arc<AppState>, 
@@ -198,7 +199,7 @@ pub async fn check_and_update_username(
     new_username: String,
     state: Arc<AppState>,
     message: UserMessage,
-) -> Option<String> {
+) -> Result<HttpResponse, Error> {
     let query = "SELECT username FROM users WHERE username = $username;";
     if let Ok(mut response) = state
         .db
@@ -213,11 +214,11 @@ pub async fn check_and_update_username(
                     "Failed to get user: fn check_and_update_username, error: {:?}",
                     e
                 );
-                return Some("Internal DB Error".to_string());
+                return Ok(HttpResponse::InternalServerError().json(json!({"error": "Internal DB Error"})));
             }
         };
         match result {
-            Some(_) => Some("Username Already In Use".to_string()),
+            Some(_) => Ok(HttpResponse::BadRequest().json(json!({"error": "Username Already In Use"}))),
             None => {
                 let query = "UPDATE users SET username = $new_username WHERE username = $username;";
                 if let Err(e) = state
@@ -226,22 +227,22 @@ pub async fn check_and_update_username(
                     .bind(("new_username", new_username.clone()))
                     .bind(("username", current_username)).await{
                         log::error!(
-                            "Failed to get user: fn check_and_update_username, error: {:?}",
+                            "Failed to update username: fn check_and_update_username, error: {:?}",
                             e
                         );
-                        return Some("Internal DB Error".to_string());
+                        return Ok(HttpResponse::InternalServerError().json(json!({"error": "Internal DB Error"})));
                     };
 
-                 
                 let serialized_msg = serde_json::to_string(&message).unwrap();
                 state
                     .broadcast_message(serialized_msg, state.main_room_id.clone(), user_id)
                     .await;
-                None
+                Ok(HttpResponse::Ok().json(json!({"message": "Username updated successfully"}))
+            )
             }
         }
     } else {
-        Some("Failed to query database".to_string())
+        Ok(HttpResponse::BadRequest().json(json!({"error": "Failed to query database"})))
     }
 }
 

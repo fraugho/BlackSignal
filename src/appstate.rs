@@ -1,5 +1,5 @@
 use actix::Addr;
-use surrealdb::{Result, Surreal};
+use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -8,10 +8,11 @@ use crate::structs::{Room, UserData, LoginForm};
 use crate::message_structs::*;
 use crate::websocket::{WsActor, WsMessage};
 
+pub type WsActorMap = HashMap<String, Addr<WsActor>>;
 pub struct AppState {
     pub db: Arc<Surreal<Client>>,
     pub channels: Arc<Mutex<HashMap<String, Room>>>,
-    pub actor_registry: Arc<Mutex<HashMap<String, HashMap<String, Addr<WsActor>>>>>,
+    pub actor_registry: Arc<Mutex<HashMap<String, WsActorMap>>>,
     pub main_room_id: String,
 }
 

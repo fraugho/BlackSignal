@@ -1,5 +1,5 @@
 [package]
-name = "chat_room_ws"
+name = "black_signal"
 version = "0.1.0"
 edition = "2021"
 

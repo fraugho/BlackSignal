@@ -44,6 +44,13 @@ pub enum UserMessage {
     UsernameChange(UsernameChangeMessage),
     CreateRoomChange(CreateRoomChangeMessage),
     Initialization(InitMessage),
+    Deletion(DeletionMessage)
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DeletionMessage {
+    pub sender_id: String,
+    pub message_id: String,
 }
 
 // BasicMessage Struct
@@ -140,5 +147,16 @@ pub struct CreateRoomChangeMessage {
 impl CreateRoomChangeMessage {
     pub fn new(sender_id: String, room_name: String) -> Self {
         CreateRoomChangeMessage { sender_id, room_name }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LoginErrorMessage {
+    pub message: String,
+}
+
+impl LoginErrorMessage {
+    pub fn new(message: String) -> Self {
+        LoginErrorMessage { message }
     }
 }

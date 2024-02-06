@@ -1,4 +1,13 @@
 "use strict";
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 let sender_id = "";
 let user_map = {};
 let ws_id = "";
@@ -18,6 +27,7 @@ var MessageType;
     MessageType["UsernameChange"] = "UsernameChange";
     MessageType["CreateRoomChange"] = "CreateRoomChange";
     MessageType["Initialization"] = "Initialization";
+    MessageType["DeleteMessage"] = "DeleteMessage";
 })(MessageType || (MessageType = {}));
 fetch('/get-ip')
     .then(response => response.json())
@@ -51,6 +61,9 @@ function initializeWebSocket(server_ip) {
                 break;
             case 'Typing' in data:
                 handleTypingMessage(data.Typing);
+                break;
+            case 'DeleteMessage' in data:
+                handleMessageDeletionMessage(data.DeleteMessage);
                 break;
             case 'NewUser' in data:
                 handleNewUserMessage(data.NewUser);
@@ -89,7 +102,12 @@ function handleBasicMessage(basic_message) {
     const messageWrapper = document.createElement('div');
     const usernameElement = document.createElement('div');
     const messageElement = document.createElement('div');
-    usernameElement.textContent = user_map[basic_message.sender_id] + ':';
+    if (user_map[basic_message.sender_id] === null) {
+        usernameElement.textContent = 'DeletedAccount:';
+    }
+    else {
+        usernameElement.textContent = user_map[basic_message.sender_id] + ':';
+    }
     usernameElement.classList.add('username');
     messageElement.textContent = basic_message.content;
     messageWrapper.appendChild(usernameElement);
@@ -113,6 +131,7 @@ function handleNewUserMessage(new_user_message) {
 function handleUserAdditionMessage(user_addition_message) { }
 function handleUserRemovalMessage(userRemovalMessage) { }
 function handleChangeRoomMessage(changeRoomMessage) { }
+function handleMessageDeletionMessage(message) { }
 function handleUsernameChangeMessage(username_change_message) {
     retroactivelyChangeUsername(user_map[username_change_message.sender_id], username_change_message.new_username);
     user_map[username_change_message.sender_id] = username_change_message.new_username;
@@ -149,7 +168,7 @@ function sendMessage() {
         const basicMessage = {
             content: messageContent,
             sender_id: sender_id,
-            message_id: "", // Assign a unique ID if necessary
+            message_id: "",
             room_id: current_room,
             ws_id: ws_id,
             timestamp: Date.now(),
@@ -195,21 +214,44 @@ function sendUsernameChange(new_username) {
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ UsernameChange: usernameChangeMessage }) // Assuming your server expects a payload with a key corresponding to the message type
+        body: JSON.stringify({ UsernameChange: usernameChangeMessage })
     })
-        .then(response => {
+        .then((response) => __awaiter(this, void 0, void 0, function* () {
         if (!response.ok) {
-            throw new Error('Network response was not ok');
+            // Directly handle non-ok responses
+            const errorData = yield response.json(); // Parse the response body to get the error message
+            throw new Error(errorData.error || 'Network response was not ok');
         }
-        return response.json();
-    })
+        return response.json(); // Parse the response body for ok responses
+    }))
         .then(data => {
-        // Handle the response data
         console.log("Username change successful:", data);
+        displayMessage('Username change successful!', 'success'); // Show success message
     })
         .catch(error => {
-        console.error('There has been a problem with your fetch operation:', error);
+        console.error('There has been a problem with your fetch operation:', error.message);
+        displayMessage(error.message, 'error'); // Show error message
     });
+}
+function displayMessage(message, type) {
+    const messageContainer = document.getElementById('message-container');
+    if (messageContainer) {
+        messageContainer.innerText = message;
+        messageContainer.className = '';
+        messageContainer.style.opacity = '1';
+        messageContainer.style.pointerEvents = 'auto';
+        if (type === 'success') {
+            messageContainer.classList.add('success-message');
+        }
+        else if (type === 'error') {
+            messageContainer.classList.add('error-message');
+        }
+        setTimeout(() => {
+            messageContainer.style.opacity = '0';
+            messageContainer.style.pointerEvents = 'none';
+            setTimeout(() => messageContainer.innerText = '', 500);
+        }, 5000);
+    }
 }
 document.getElementById('Username').addEventListener('submit', function (event) {
     event.preventDefault();

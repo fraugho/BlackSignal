@@ -697,6 +697,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "black_signal"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "actix-files",
+ "actix-session",
+ "actix-web",
+ "actix-web-actors",
+ "actix-web-lab",
+ "anyhow",
+ "bcrypt",
+ "chrono",
+ "futures-util",
+ "local-ip-address",
+ "log",
+ "names",
+ "parking_lot",
+ "rand",
+ "serde",
+ "serde_json",
+ "surrealdb",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "blake2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,32 +928,6 @@ name = "cfg_aliases"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
-
-[[package]]
-name = "chat_room_ws"
-version = "0.1.0"
-dependencies = [
- "actix",
- "actix-files",
- "actix-session",
- "actix-web",
- "actix-web-actors",
- "actix-web-lab",
- "anyhow",
- "bcrypt",
- "chrono",
- "futures-util",
- "local-ip-address",
- "log",
- "names",
- "parking_lot",
- "rand",
- "serde",
- "serde_json",
- "surrealdb",
- "uuid",
- "validator",
-]
 
 [[package]]
 name = "chrono"
