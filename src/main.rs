@@ -79,7 +79,7 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
         session.insert("key", user_data.user_id).unwrap();
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
-        HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
+        HttpResponse::Ok().json(json!(LoginErrorMessage::new("Invalid Please enter an email and a password".to_string())))
     }
 }
 
@@ -106,7 +106,9 @@ async fn login_action(state: web::Data<AppState>, form: web::Json<LoginForm>, se
                 HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
             }
         }
-        None => HttpResponse::Ok().json(json!({"success": false, "message": "Invalid credentials"}))
+        None => {
+            HttpResponse::Ok().json(json!(LoginErrorMessage::new("Invalid Please enter an email and a password".to_string())))
+        }
     }
 }
 
@@ -117,7 +119,7 @@ struct Image {
 }
 
 #[post("/upload")]
-async fn upload(upload: web::Json<Image>, session: Session) -> impl Responder {
+async fn upload(upload: web::Json<Image>) -> impl Responder {
     let image_data = upload.into_inner();
     let file_name = Uuid::new_v4().to_string().replace('-', "");
     let image_filename = format!("/Images/{}.jpg", file_name);
@@ -133,7 +135,7 @@ async fn change_username(username_change: web::Json<UserMessage>, session: Sessi
     if let UserMessage::UsernameChange(message) = username_change.into_inner() { 
         let user_id = match session.get::<String>("key") {
             Ok(Some(id)) => id,
-            _ => return HttpResponse::BadRequest().body("Failed to get user_id from session"),
+            _ => return HttpResponse::BadRequest().json(json!({"error": "Failed to get user_id from session"})),
         };
         let query = "SELECT * FROM users WHERE user_id = $user_id;";
         if let Ok(mut response) = state.db.query(query).bind(("user_id", user_id.clone())).await{
@@ -141,21 +143,21 @@ async fn change_username(username_change: web::Json<UserMessage>, session: Sessi
                 Ok(data) => data,
                 Err(e) => {
                     log::error!("Failed to get user data: fn change_username, error: {:?}", e);
-                    return HttpResponse::InternalServerError().body("Internal server error: Failed to retrieve user data.");
+                    return HttpResponse::BadRequest().json(json!({"error": "Failed to get user_id from session"}));
                 }
             };
             
             let user_data = user_query.unwrap();
             match check_and_update_username(user_id, user_data.username, message.new_username.clone(), arc_state, UserMessage::UsernameChange(message))
                 .await {
-                Some(error) => HttpResponse::BadRequest().body(error),
-                None => HttpResponse::Ok().finish()
+                Ok(response) => response,
+                Err(e) => HttpResponse::InternalServerError().json(json!({"error": e.to_string()})),
             }
         } else {
-            HttpResponse::BadRequest().body("Database Error")
+            HttpResponse::BadRequest().json(json!({"error": "Database Error"}))
         }
     } else {
-        HttpResponse::BadRequest().body("Invalid message format for username change.")
+        HttpResponse::BadRequest().json(json!({"error": "Invalid message format for username change."}))
     }
 }
 

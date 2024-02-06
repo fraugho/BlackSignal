@@ -18,6 +18,7 @@ enum MessageType {
     UsernameChange = 'UsernameChange',
     CreateRoomChange = 'CreateRoomChange',
     Initialization = 'Initialization',
+    DeleteMessage = 'DeleteMessage',
 }
 
 interface InitMessage {
@@ -79,6 +80,11 @@ interface CreateRoomChangeMessage {
     sender_id: string;
 }
 
+interface MessageDeletionMessage {
+    sender_id: string;
+    message_id: string;
+}
+
 type UserMessage =
     | { Basic: BasicMessage }
     | { Image: ImageMessage }
@@ -90,7 +96,9 @@ type UserMessage =
     | { ChangeRoom: ChangeRoomMessage }
     | { UsernameChange: UsernameChangeMessage }
     | { CreateRoomChange: CreateRoomChangeMessage }
-    | { Initialization: InitMessage };
+    | { Initialization: InitMessage }
+    | { DeleteMessage: MessageDeletionMessage };
+
 
 fetch('/get-ip')
     .then(response => response.json())
@@ -126,6 +134,9 @@ function initializeWebSocket(server_ip: string): void {
                 break;
             case 'Typing' in data:
                 handleTypingMessage(data.Typing);
+                break;
+            case 'DeleteMessage' in data:
+                handleMessageDeletionMessage(data.DeleteMessage);
                 break;
             case 'NewUser' in data:
                 handleNewUserMessage(data.NewUser);
@@ -167,7 +178,12 @@ function handleBasicMessage(basic_message: BasicMessage) {
     const usernameElement = document.createElement('div');
     const messageElement = document.createElement('div');
 
-    usernameElement.textContent = user_map[basic_message.sender_id] + ':';
+    if (user_map[basic_message.sender_id] === null){
+        usernameElement.textContent = 'DeletedAccount:';
+    } else {
+        usernameElement.textContent = user_map[basic_message.sender_id] + ':';
+    }
+
     usernameElement.classList.add('username');
     messageElement.textContent = basic_message.content;
 
@@ -193,6 +209,7 @@ function handleNewUserMessage(new_user_message: NewUserMessage) {
 function handleUserAdditionMessage(user_addition_message: UserAdditionMessage) {}
 function handleUserRemovalMessage(userRemovalMessage: UserRemovalMessage) {}
 function handleChangeRoomMessage(changeRoomMessage: ChangeRoomMessage) {}
+function handleMessageDeletionMessage(message: MessageDeletionMessage) {}
 function handleUsernameChangeMessage(username_change_message: UsernameChangeMessage) {
     retroactivelyChangeUsername(user_map[username_change_message.sender_id],username_change_message.new_username);
     user_map[username_change_message.sender_id] = username_change_message.new_username;
@@ -233,7 +250,7 @@ function sendMessage(): void {
         const basicMessage: BasicMessage = {
             content: messageContent,
             sender_id: sender_id,
-            message_id: "", // Assign a unique ID if necessary
+            message_id: "",
             room_id: current_room,
             ws_id: ws_id,
             timestamp: Date.now(),
@@ -287,21 +304,44 @@ function sendUsernameChange(new_username: string): void {
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ UsernameChange: usernameChangeMessage }) // Assuming your server expects a payload with a key corresponding to the message type
+        body: JSON.stringify({ UsernameChange: usernameChangeMessage })
     })
-    .then(response => {
+    .then(async response => {
         if (!response.ok) {
-            throw new Error('Network response was not ok');
+            // Directly handle non-ok responses
+            const errorData = await response.json(); // Parse the response body to get the error message
+            throw new Error(errorData.error || 'Network response was not ok');
         }
-        return response.json();
+        return response.json(); // Parse the response body for ok responses
     })
     .then(data => {
-        // Handle the response data
         console.log("Username change successful:", data);
+        displayMessage('Username change successful!', 'success'); // Show success message
     })
     .catch(error => {
-        console.error('There has been a problem with your fetch operation:', error);
-    });
+        console.error('There has been a problem with your fetch operation:', error.message);
+        displayMessage(error.message, 'error'); // Show error message
+    });    
+}
+
+function displayMessage(message: string, type: 'success' | 'error'): void {
+    const messageContainer = document.getElementById('message-container');
+    if (messageContainer) {
+        messageContainer.innerText = message;
+        messageContainer.className = '';
+        messageContainer.style.opacity = '1';
+        messageContainer.style.pointerEvents = 'auto';
+        if (type === 'success') {
+            messageContainer.classList.add('success-message');
+        } else if (type === 'error') {
+            messageContainer.classList.add('error-message');
+        }
+        setTimeout(() => {
+            messageContainer.style.opacity = '0';
+            messageContainer.style.pointerEvents = 'none';
+            setTimeout(() => messageContainer.innerText = '', 500);
+        }, 5000);
+    }
 }
 
 document.getElementById('Username')!.addEventListener('submit', function(event: Event) {

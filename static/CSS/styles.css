@@ -374,3 +374,37 @@ body {
     background-color: #B3B6B7;
     color: #000000;
 }
+
+/* Message container for displaying success and error messages */
+#message-container {
+  position: fixed;         
+  top: 0;              
+  left: 50%;            
+  transform: translateX(-50%); 
+  width: 70%;            
+  text-align: center;      
+  padding: 20px 0;        
+  z-index: 10;           
+  font-size: 1rem;       
+  display: none;
+  transition: opacity 0.5s ease;           
+}
+
+/* Success message styling */
+.success-message {
+  background-color: #28a745; 
+  color: #ffffff;       
+  border: 1px solid #28a745;
+}
+
+/* Error message styling */
+.error-message {
+  background-color: #dc3545; 
+  color: #ffffff;        
+  border: 1px solid #dc3545; 
+}
+
+/* Show the message container when it has content */
+#message-container:not(:empty) {
+  display: block;
+}
