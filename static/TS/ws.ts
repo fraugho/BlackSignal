@@ -18,7 +18,7 @@ enum MessageType {
     UsernameChange = 'UsernameChange',
     CreateRoomChange = 'CreateRoomChange',
     Initialization = 'Initialization',
-    DeleteMessage = 'DeleteMessage',
+    Deletion = 'Deletion',
 }
 
 interface InitMessage {
@@ -80,7 +80,7 @@ interface CreateRoomChangeMessage {
     sender_id: string;
 }
 
-interface MessageDeletionMessage {
+interface DeletionMessage {
     sender_id: string;
     message_id: string;
 }
@@ -97,7 +97,7 @@ type UserMessage =
     | { UsernameChange: UsernameChangeMessage }
     | { CreateRoomChange: CreateRoomChangeMessage }
     | { Initialization: InitMessage }
-    | { DeleteMessage: MessageDeletionMessage };
+    | { Deletion: DeletionMessage };
 
 
 fetch('/get-ip')
@@ -135,8 +135,8 @@ function initializeWebSocket(server_ip: string): void {
             case 'Typing' in data:
                 handleTypingMessage(data.Typing);
                 break;
-            case 'DeleteMessage' in data:
-                handleMessageDeletionMessage(data.DeleteMessage);
+            case 'Deletion' in data:
+                handleMessageDeletionMessage(data.Deletion);
                 break;
             case 'NewUser' in data:
                 handleNewUserMessage(data.NewUser);
@@ -173,33 +173,93 @@ function handleBasicMessage(basic_message: BasicMessage) {
     if (basic_message.ws_id === ws_id) {
         return;
     }
+    
     const chatContainer = document.getElementById('chat-container')!;
+    const messageContainer = document.createElement('div');
     const messageWrapper = document.createElement('div');
     const usernameElement = document.createElement('div');
     const messageElement = document.createElement('div');
 
-    if (user_map[basic_message.sender_id] === null){
-        usernameElement.textContent = 'DeletedAccount:';
-    } else {
-        usernameElement.textContent = user_map[basic_message.sender_id] + ':';
-    }
+    messageContainer.classList.add('message-container');
+    messageContainer.setAttribute('data-message-id', basic_message.message_id);
+    messageWrapper.classList.add('chat-message');
+    messageWrapper.setAttribute('data-message-id', basic_message.message_id);
 
+    usernameElement.textContent = user_map[basic_message.sender_id] !== null ? user_map[basic_message.sender_id] + ':' : 'DeletedAccount:';
     usernameElement.classList.add('username');
     messageElement.textContent = basic_message.content;
-
+    
     messageWrapper.appendChild(usernameElement);
     messageWrapper.appendChild(messageElement);
-    messageWrapper.classList.add('chat-message');
 
     if (basic_message.sender_id === sender_id) {
         messageWrapper.classList.add('sent-message');
+        messageContainer.classList.add('sent-container');
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.classList.add('delete-checkbox');
+        checkbox.style.display = isDeleteMode ? 'inline-block' : 'none';
+
+        messageContainer.appendChild(checkbox);
     } else {
         messageWrapper.classList.add('received-message');
+        messageContainer.classList.add('received-container');
     }
 
-    chatContainer.appendChild(messageWrapper);
+    messageContainer.appendChild(messageWrapper);
+    chatContainer.appendChild(messageContainer);
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
+
+
+
+let isDeleteMode = false; // Keeps track of whether delete mode is active
+
+// Add this after the WebSocket initialization
+document.getElementById('toggle-delete-mode')?.addEventListener('click', () => {
+    isDeleteMode = !isDeleteMode;
+    // Update the checkbox visibility
+    const checkboxes = document.querySelectorAll('.delete-checkbox') as NodeListOf<HTMLInputElement>;
+    checkboxes.forEach(checkbox => {
+        checkbox.style.display = isDeleteMode ? 'block' : 'none';
+    });
+
+    // Optionally change the button text to indicate the mode
+    const toggleDeleteButton = document.getElementById('toggle-delete-mode') as HTMLButtonElement;
+    toggleDeleteButton.textContent = isDeleteMode ? 'Exit Delete Mode' : 'Enter Delete Mode';
+
+    // Show/hide the delete selected messages button
+    const deleteSelectedButton = document.getElementById('delete-selected-messages') as HTMLButtonElement;
+    deleteSelectedButton.style.display = isDeleteMode ? 'block' : 'none';
+});
+
+document.getElementById('delete-selected-messages')?.addEventListener('click', () => {
+    const selectedCheckboxes = document.querySelectorAll('.delete-checkbox:checked') as NodeListOf<HTMLInputElement>;
+    console.log(`Found ${selectedCheckboxes.length} messages to delete.`);
+
+    selectedCheckboxes.forEach(checkbox => {
+        const messageContainer = checkbox.closest('.message-container');
+        console.log("1");
+        if (messageContainer) {
+            console.log("2");
+            const messageId = messageContainer.getAttribute('data-message-id');
+            if (messageId) {
+                console.log("3");
+                console.log(`Deleting message with ID: ${messageId}`);
+                deleteMessage(messageId);
+                console.log(messageContainer);
+                messageContainer.remove();
+            }
+        }
+    });
+
+    if (isDeleteMode) {
+        document.getElementById('toggle-delete-mode')?.click();
+    }
+});
+
+
 function handleImageMessage(imageMessage: ImageMessage) {}
 function handleNotificationMessage(notificationMessage: NotificationMessage) {}
 function handleTypingMessage(typingMessage: TypingMessage) {}
@@ -209,7 +269,20 @@ function handleNewUserMessage(new_user_message: NewUserMessage) {
 function handleUserAdditionMessage(user_addition_message: UserAdditionMessage) {}
 function handleUserRemovalMessage(userRemovalMessage: UserRemovalMessage) {}
 function handleChangeRoomMessage(changeRoomMessage: ChangeRoomMessage) {}
-function handleMessageDeletionMessage(message: MessageDeletionMessage) {}
+function handleMessageDeletionMessage(message: DeletionMessage) {
+    // Extract the message_id from the deletion message
+    const messageId = message.message_id;
+
+    // Find the message element in the DOM
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+
+    // If the element exists, remove it
+    if (messageElement) {
+        messageElement.remove();
+    } else {
+        console.log(`Message with ID ${messageId} not found.`);
+    }
+}
 function handleUsernameChangeMessage(username_change_message: UsernameChangeMessage) {
     retroactivelyChangeUsername(user_map[username_change_message.sender_id],username_change_message.new_username);
     user_map[username_change_message.sender_id] = username_change_message.new_username;
@@ -264,23 +337,35 @@ function sendMessage(): void {
             socket.send(JSON.stringify(wrappedMessage));
         }
         const chatContainer: HTMLElement = document.getElementById('chat-container')!;
-        const messageWrapper: HTMLElement = document.createElement('div');
-        const usernameElement: HTMLElement = document.createElement('div');
-        const messageElement: HTMLElement = document.createElement('div');
+        const messageContainer = document.createElement('div');
+        const messageWrapper = document.createElement('div');
+        const usernameElement = document.createElement('div');
+        const messageElement = document.createElement('div');
 
-        usernameElement.textContent = (username) + ':';
+        messageContainer.classList.add('message-container', 'sent-container');
+        messageWrapper.classList.add('chat-message', 'sent-message');
+        
+        usernameElement.textContent = username + ':';
         usernameElement.classList.add('username');
-        messageElement.textContent = textarea.value.trim();
-
+        messageElement.textContent = messageContent;
+        
         messageWrapper.appendChild(usernameElement);
         messageWrapper.appendChild(messageElement);
-        messageWrapper.classList.add('chat-message');
-        messageWrapper.classList.add('sent-message');
-        chatContainer.appendChild(messageWrapper);
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.classList.add('delete-checkbox');
+        checkbox.style.display = 'none';
+        
+        messageContainer.appendChild(checkbox);
+        messageContainer.appendChild(messageWrapper);
+        chatContainer.appendChild(messageContainer);
         chatContainer.scrollTop = chatContainer.scrollHeight;
         textarea.value = '';
     }
 }
+
+
 
 
 const textarea = document.querySelector('textarea[name="message_form"]') as HTMLTextAreaElement;
@@ -363,6 +448,31 @@ document.getElementById('Username')!.addEventListener('keydown', function(event:
         }
     }
 });
+
+function deleteMessage(message_id: string): void {
+    console.log(`Attempting to delete message with ID: ${message_id}`); // Confirm function is called
+
+    const message: DeletionMessage = {
+        sender_id: sender_id,
+        message_id: message_id
+    };
+
+    const wrapped_message: UserMessage = {
+        Deletion: message
+    };
+
+    console.log(`WebSocket ready state: ${socket.readyState}`); // Check WebSocket state
+
+    if (socket.readyState === WebSocket.OPEN) {
+        console.log(`Sending deletion request for message ID: ${message_id}`, wrapped_message); // Log the message being sent
+        socket.send(JSON.stringify(wrapped_message));
+    } else {
+        console.error("WebSocket is not open. Cannot send message.");
+    }
+}
+
+
+  
 
 document.querySelector('input[type="file"][name="image"]')!.addEventListener('change', function(event: Event) {
     const input = event.target as HTMLInputElement;

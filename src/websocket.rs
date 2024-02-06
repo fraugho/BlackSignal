@@ -55,18 +55,7 @@ pub struct WsActor {
 }
 
 impl WsActor {
-    async fn delete_message(&self, message_id: String) {
-        let _: Option<UserMessage> = match self.state.db.delete(("messages", message_id)).await {
-            Ok(x) => x,
-            Err(e) => {
-                log::error!(
-                    "Failed to delete message: fn delete_message, error: {:?}",
-                    e
-                );
-                None
-            }
-        };
-    }
+    
 }
 
 pub async fn add_user_to_room(
@@ -150,6 +139,41 @@ impl Handler<WsMessage> for WsActor {
         // Always send the message to the client, including the sender
         ctx.text(msg.0);
     }
+}
+
+pub async fn delete_message(message: DeletionMessage, sender_id: String, room_id: String, state: Arc<AppState>) {
+    let query = "SELECT * FROM messages WHERE sender_id = $sender_id AND message_id = $message_id;";
+    let mut response = match state.db.query(query).bind(("sender_id", sender_id.clone())).bind(("message_id", message.message_id.clone())).await {
+        Ok(x) => x,
+        Err(e) => {
+            log::error!(
+                "Failed to delete message: fn delete_message, error: {:?}",
+                e
+            );
+            return
+        }
+    };
+    let _: Option<BasicMessage> = match response.take(0) {
+        Ok(x) => x,
+        Err(e) => {log::error!("Failed to delete message: fn delete_message, error: {:?}", e);
+            return}
+    };
+    let _: Option<BasicMessage> = match state.db.delete(("messages", message.message_id.clone())).await {
+        Ok(x) => x,
+        Err(e) => {
+            log::error!(
+                "Failed to delete message: fn delete_message, error: {:?}",
+                e
+            );
+            None
+        }
+    };
+    let serialized_message = match serde_json::to_string(&UserMessage::Deletion(message)){
+        Ok(x) => x,
+        Err(e) => {log::error!("Failed to delete message: fn delete_message, error: {:?}", e);
+        return},
+    };
+    state.broadcast_message(serialized_message, room_id, sender_id).await;
 }
 
 pub async fn get_users(
@@ -256,42 +280,45 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
             match serde_json::from_str::<UserMessage>(&text) {
                 Ok(message) => match message {
                     UserMessage::Basic(basic_message) => {
-                        if basic_message.sender_id == self.user_id {
-                            let app_state = self.state.clone();
-                            let now = Utc::now();
-                            let basic_message = BasicMessage {
-                                content: basic_message.content,
-                                sender_id: basic_message.sender_id,
-                                timestamp: now.timestamp() as u64,
-                                message_id: Uuid::new_v4().to_string().replace('-', ""),
-                                room_id: self.current_room.clone(),
-                                ws_id: self.ws_id.clone(),
-                            };
-                            actix::spawn(async move {
-                                let _: Option<BasicMessage> = match app_state
-                                    .db
-                                    .create(("messages", basic_message.message_id.clone()))
-                                    .content(basic_message.clone())
-                                    .await {
-                                        Ok(retrieved) => retrieved,
-                                        Err(e) => {log::error!("Failed to create message in db: fn handle, error: {:?}", e);
-                                        return}
-                                    };
-                                let serialized_msg = serde_json::to_string(&UserMessage::Basic(
-                                    basic_message.clone(),
-                                ))
-                                .unwrap();
-                                app_state
-                                    .broadcast_message(
-                                        serialized_msg,
-                                        basic_message.room_id,
-                                        basic_message.sender_id,
-                                    )
-                                    .await;
-                            });
-                        } else {
-                            println!("Invalid Access")
-                        }
+                        let app_state = self.state.clone();
+                        let now = Utc::now();
+                        let basic_message = BasicMessage {
+                            content: basic_message.content,
+                            sender_id: self.user_id.clone(),
+                            timestamp: now.timestamp() as u64,
+                            message_id: Uuid::new_v4().to_string().replace('-', ""),
+                            room_id: self.current_room.clone(),
+                            ws_id: self.ws_id.clone(),
+                        };
+                        actix::spawn(async move {
+                            let _: Option<BasicMessage> = match app_state
+                                .db
+                                .create(("messages", basic_message.message_id.clone()))
+                                .content(basic_message.clone())
+                                .await {
+                                    Ok(retrieved) => retrieved,
+                                    Err(e) => {log::error!("Failed to create message in db: fn handle, error: {:?}", e);
+                                    return}
+                                };
+                            let serialized_msg = serde_json::to_string(&UserMessage::Basic(
+                                basic_message.clone(),
+                            ))
+                            .unwrap();
+                            app_state
+                                .broadcast_message(
+                                    serialized_msg,
+                                    basic_message.room_id,
+                                    basic_message.sender_id,
+                                )
+                                .await;
+                        });
+                    }
+                    UserMessage::Deletion(message) => {
+                        let sender_id = self.user_id.clone();
+                        let state = self.state.clone();
+                        let room_id = self.current_room.clone();
+                        ctx.spawn(actix::fut::wrap_future(delete_message(message, sender_id, room_id, state)));
+                        
                     }
                     UserMessage::CreateRoomChange(create_room_change_message) => {
                         let room_id = Uuid::new_v4().to_string().replace('-', "");
@@ -336,13 +363,13 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                 .bind(("room_id", user_removal_message.room_id))
                                 .await
                             {
-                                eprintln!("Error removing from room: {:?}", e);
+                                log::error!("Error removing from room: {:?}", e);
                             }
                         });
                     }
                     _ => {}
                 },
-                Err(e) => eprintln!("Error processing message: {:?}", e),
+                Err(e) => log::error!("Error processing message: {:?}", e),
             }
         }
     }
