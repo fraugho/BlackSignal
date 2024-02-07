@@ -169,13 +169,13 @@ function handleInitialization(init_message: InitMessage) {
     user_map = init_message.user_map;
 }
 
-function handleBasicMessage(basic_message: BasicMessage) {
-    if (basic_message.ws_id === ws_id) {
+function handleBasicMessage(message: BasicMessage) {
+    if (message.ws_id === ws_id) {
         const chatContainer = document.getElementById('chat-container')!;
         const sentContainers = chatContainer.getElementsByClassName('sent-container');
         if (sentContainers.length > 0) {
             const lastSentContainer = sentContainers[sentContainers.length - 1];
-            lastSentContainer.setAttribute('data-message-id', basic_message.message_id);
+            lastSentContainer.setAttribute('data-message-id', message.message_id);
         }
         return;
     }
@@ -187,25 +187,25 @@ function handleBasicMessage(basic_message: BasicMessage) {
     const messageElement = document.createElement('div');
 
     messageContainer.classList.add('message-container');
-    messageContainer.setAttribute('data-message-id', basic_message.message_id);
+    messageContainer.setAttribute('data-message-id', message.message_id);
     messageWrapper.classList.add('chat-message');
-    messageWrapper.setAttribute('data-message-id', basic_message.message_id);
+    messageWrapper.setAttribute('data-message-id', message.message_id);
 
-    usernameElement.textContent = user_map[basic_message.sender_id] !== null ? user_map[basic_message.sender_id] + ':' : 'DeletedAccount:';
+    usernameElement.textContent = user_map[message.sender_id] !== null ? user_map[message.sender_id] + ':' : 'DeletedAccount:';
     usernameElement.classList.add('username');
-    messageElement.textContent = basic_message.content;
+    messageElement.textContent = message.content;
     
     messageWrapper.appendChild(usernameElement);
     messageWrapper.appendChild(messageElement);
 
-    if (basic_message.sender_id === sender_id) {
+    if (message.sender_id === sender_id) {
         messageWrapper.classList.add('sent-message');
         messageContainer.classList.add('sent-container');
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.classList.add('delete-checkbox');
-        checkbox.style.display = isDeleteMode ? 'inline-block' : 'none';
+        checkbox.style.display = is_delete_mode ? 'inline-block' : 'none';
 
         messageContainer.appendChild(checkbox);
     } else {
@@ -220,24 +220,24 @@ function handleBasicMessage(basic_message: BasicMessage) {
 
 
 
-let isDeleteMode = false; // Keeps track of whether delete mode is active
+let is_delete_mode = false; // Keeps track of whether delete mode is active
 
 // Add this after the WebSocket initialization
 document.getElementById('toggle-delete-mode')?.addEventListener('click', () => {
-    isDeleteMode = !isDeleteMode;
+    is_delete_mode = !is_delete_mode;
     // Update the checkbox visibility
     const checkboxes = document.querySelectorAll('.delete-checkbox') as NodeListOf<HTMLInputElement>;
     checkboxes.forEach(checkbox => {
-        checkbox.style.display = isDeleteMode ? 'block' : 'none';
+        checkbox.style.display = is_delete_mode ? 'block' : 'none';
     });
 
     // Optionally change the button text to indicate the mode
     const toggleDeleteButton = document.getElementById('toggle-delete-mode') as HTMLButtonElement;
-    toggleDeleteButton.textContent = isDeleteMode ? 'Exit Delete Mode' : 'Enter Delete Mode';
+    toggleDeleteButton.textContent = is_delete_mode ? 'Exit Delete Mode' : 'Enter Delete Mode';
 
     // Show/hide the delete selected messages button
     const deleteSelectedButton = document.getElementById('delete-selected-messages') as HTMLButtonElement;
-    deleteSelectedButton.style.display = isDeleteMode ? 'block' : 'none';
+    deleteSelectedButton.style.display = is_delete_mode ? 'block' : 'none';
 });
 
 document.getElementById('delete-selected-messages')?.addEventListener('click', () => {
@@ -254,21 +254,21 @@ document.getElementById('delete-selected-messages')?.addEventListener('click', (
         }
     });
 
-    if (isDeleteMode) {
+    if (is_delete_mode) {
         document.getElementById('toggle-delete-mode')?.click();
     }
 });
 
 
-function handleImageMessage(imageMessage: ImageMessage) {}
-function handleNotificationMessage(notificationMessage: NotificationMessage) {}
+function handleImageMessage(message: ImageMessage) {}
+function handleNotificationMessage(message: NotificationMessage) {}
 function handleTypingMessage(typingMessage: TypingMessage) {}
-function handleNewUserMessage(new_user_message: NewUserMessage) {
-    user_map[new_user_message.user_id] = new_user_message.username;
+function handleNewUserMessage(message: NewUserMessage) {
+    user_map[message.user_id] = message.username;
 }
-function handleUserAdditionMessage(user_addition_message: UserAdditionMessage) {}
-function handleUserRemovalMessage(userRemovalMessage: UserRemovalMessage) {}
-function handleChangeRoomMessage(changeRoomMessage: ChangeRoomMessage) {}
+function handleUserAdditionMessage(message: UserAdditionMessage) {}
+function handleUserRemovalMessage(message: UserRemovalMessage) {}
+function handleChangeRoomMessage(message: ChangeRoomMessage) {}
 function handleMessageDeletionMessage(message: DeletionMessage) {
     // Extract the message_id from the deletion message
     const messageId = message.message_id;
@@ -429,8 +429,8 @@ function displayMessage(message: string, type: 'success' | 'error'): void {
 
 document.getElementById('Username')!.addEventListener('submit', function(event: Event) {
     event.preventDefault();
-    const usernameField: HTMLInputElement = document.getElementById('usernameField')! as HTMLInputElement;
-    const new_username: string = usernameField.value.trim();
+    const username_field: HTMLInputElement = document.getElementById('usernameField')! as HTMLInputElement;
+    const new_username: string = username_field.value.trim();
     if (new_username !== '') {
         sendUsernameChange(new_username);
     }
@@ -439,8 +439,8 @@ document.getElementById('Username')!.addEventListener('submit', function(event: 
 document.getElementById('Username')!.addEventListener('keydown', function(event: KeyboardEvent) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        const usernameField: HTMLInputElement = document.getElementById('usernameField')! as HTMLInputElement;
-        const new_username: string = usernameField.value.trim();
+        const username_field: HTMLInputElement = document.getElementById('username_field')! as HTMLInputElement;
+        const new_username: string = username_field.value.trim();
         if (new_username !== '') {
             sendUsernameChange(new_username);
         }
