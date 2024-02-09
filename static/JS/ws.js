@@ -318,7 +318,7 @@ function displayMessage(message, type) {
 }
 document.getElementById('Username').addEventListener('submit', function (event) {
     event.preventDefault();
-    const usernameField = document.getElementById('usernameField');
+    const usernameField = document.getElementById('username_field');
     const new_username = usernameField.value.trim();
     if (new_username !== '') {
         sendUsernameChange(new_username);
@@ -327,7 +327,7 @@ document.getElementById('Username').addEventListener('submit', function (event) 
 document.getElementById('Username').addEventListener('keydown', function (event) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        const usernameField = document.getElementById('usernameField');
+        const usernameField = document.getElementById('username_field');
         const new_username = usernameField.value.trim();
         if (new_username !== '') {
             sendUsernameChange(new_username);
