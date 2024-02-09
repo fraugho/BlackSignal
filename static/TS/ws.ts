@@ -429,7 +429,7 @@ function displayMessage(message: string, type: 'success' | 'error'): void {
 
 document.getElementById('Username')!.addEventListener('submit', function(event: Event) {
     event.preventDefault();
-    const username_field: HTMLInputElement = document.getElementById('usernameField')! as HTMLInputElement;
+    const username_field: HTMLInputElement = document.getElementById('username_field')! as HTMLInputElement;
     const new_username: string = username_field.value.trim();
     if (new_username !== '') {
         sendUsernameChange(new_username);
