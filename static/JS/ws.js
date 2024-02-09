@@ -95,13 +95,13 @@ function handleInitialization(init_message) {
     username = init_message.username;
     user_map = init_message.user_map;
 }
-function handleBasicMessage(basic_message) {
-    if (basic_message.ws_id === ws_id) {
+function handleBasicMessage(message) {
+    if (message.ws_id === ws_id) {
         const chatContainer = document.getElementById('chat-container');
         const sentContainers = chatContainer.getElementsByClassName('sent-container');
         if (sentContainers.length > 0) {
             const lastSentContainer = sentContainers[sentContainers.length - 1];
-            lastSentContainer.setAttribute('data-message-id', basic_message.message_id);
+            lastSentContainer.setAttribute('data-message-id', message.message_id);
         }
         return;
     }
@@ -111,21 +111,21 @@ function handleBasicMessage(basic_message) {
     const usernameElement = document.createElement('div');
     const messageElement = document.createElement('div');
     messageContainer.classList.add('message-container');
-    messageContainer.setAttribute('data-message-id', basic_message.message_id);
+    messageContainer.setAttribute('data-message-id', message.message_id);
     messageWrapper.classList.add('chat-message');
-    messageWrapper.setAttribute('data-message-id', basic_message.message_id);
-    usernameElement.textContent = user_map[basic_message.sender_id] !== null ? user_map[basic_message.sender_id] + ':' : 'DeletedAccount:';
+    messageWrapper.setAttribute('data-message-id', message.message_id);
+    usernameElement.textContent = user_map[message.sender_id] !== null ? user_map[message.sender_id] + ':' : 'DeletedAccount:';
     usernameElement.classList.add('username');
-    messageElement.textContent = basic_message.content;
+    messageElement.textContent = message.content;
     messageWrapper.appendChild(usernameElement);
     messageWrapper.appendChild(messageElement);
-    if (basic_message.sender_id === sender_id) {
+    if (message.sender_id === sender_id) {
         messageWrapper.classList.add('sent-message');
         messageContainer.classList.add('sent-container');
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.classList.add('delete-checkbox');
-        checkbox.style.display = isDeleteMode ? 'inline-block' : 'none';
+        checkbox.style.display = is_delete_mode ? 'inline-block' : 'none';
         messageContainer.appendChild(checkbox);
     }
     else {
@@ -136,21 +136,21 @@ function handleBasicMessage(basic_message) {
     chatContainer.appendChild(messageContainer);
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
-let isDeleteMode = false; // Keeps track of whether delete mode is active
+let is_delete_mode = false; // Keeps track of whether delete mode is active
 // Add this after the WebSocket initialization
 (_a = document.getElementById('toggle-delete-mode')) === null || _a === void 0 ? void 0 : _a.addEventListener('click', () => {
-    isDeleteMode = !isDeleteMode;
+    is_delete_mode = !is_delete_mode;
     // Update the checkbox visibility
     const checkboxes = document.querySelectorAll('.delete-checkbox');
     checkboxes.forEach(checkbox => {
-        checkbox.style.display = isDeleteMode ? 'block' : 'none';
+        checkbox.style.display = is_delete_mode ? 'block' : 'none';
     });
     // Optionally change the button text to indicate the mode
     const toggleDeleteButton = document.getElementById('toggle-delete-mode');
-    toggleDeleteButton.textContent = isDeleteMode ? 'Exit Delete Mode' : 'Enter Delete Mode';
+    toggleDeleteButton.textContent = is_delete_mode ? 'Exit Delete Mode' : 'Enter Delete Mode';
     // Show/hide the delete selected messages button
     const deleteSelectedButton = document.getElementById('delete-selected-messages');
-    deleteSelectedButton.style.display = isDeleteMode ? 'block' : 'none';
+    deleteSelectedButton.style.display = is_delete_mode ? 'block' : 'none';
 });
 (_b = document.getElementById('delete-selected-messages')) === null || _b === void 0 ? void 0 : _b.addEventListener('click', () => {
     var _a;
@@ -165,19 +165,19 @@ let isDeleteMode = false; // Keeps track of whether delete mode is active
             }
         }
     });
-    if (isDeleteMode) {
+    if (is_delete_mode) {
         (_a = document.getElementById('toggle-delete-mode')) === null || _a === void 0 ? void 0 : _a.click();
     }
 });
-function handleImageMessage(imageMessage) { }
-function handleNotificationMessage(notificationMessage) { }
+function handleImageMessage(message) { }
+function handleNotificationMessage(message) { }
 function handleTypingMessage(typingMessage) { }
-function handleNewUserMessage(new_user_message) {
-    user_map[new_user_message.user_id] = new_user_message.username;
+function handleNewUserMessage(message) {
+    user_map[message.user_id] = message.username;
 }
-function handleUserAdditionMessage(user_addition_message) { }
-function handleUserRemovalMessage(userRemovalMessage) { }
-function handleChangeRoomMessage(changeRoomMessage) { }
+function handleUserAdditionMessage(message) { }
+function handleUserRemovalMessage(message) { }
+function handleChangeRoomMessage(message) { }
 function handleMessageDeletionMessage(message) {
     // Extract the message_id from the deletion message
     const messageId = message.message_id;
@@ -318,8 +318,8 @@ function displayMessage(message, type) {
 }
 document.getElementById('Username').addEventListener('submit', function (event) {
     event.preventDefault();
-    const usernameField = document.getElementById('username_field');
-    const new_username = usernameField.value.trim();
+    const username_field = document.getElementById('username_field');
+    const new_username = username_field.value.trim();
     if (new_username !== '') {
         sendUsernameChange(new_username);
     }
@@ -327,8 +327,8 @@ document.getElementById('Username').addEventListener('submit', function (event) 
 document.getElementById('Username').addEventListener('keydown', function (event) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
-        const usernameField = document.getElementById('username_field');
-        const new_username = usernameField.value.trim();
+        const username_field = document.getElementById('username_field');
+        const new_username = username_field.value.trim();
         if (new_username !== '') {
             sendUsernameChange(new_username);
         }
