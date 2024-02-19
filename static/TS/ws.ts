@@ -121,40 +121,40 @@ function initializeWebSocket(server_ip: string): void {
         const data = JSON.parse(event.data) as UserMessage;
         switch (true) {
             case 'Initialization' in data:
-                handleInitialization(data.Initialization);
+                handle_initialization(data.Initialization);
                 break;
             case 'Basic' in data:
-                handleBasicMessage(data.Basic);
+                handle_basic_message(data.Basic);
                 break;
             case 'Image' in data:
-                handleImageMessage(data.Image);
+                handle_image_message(data.Image);
                 break;
             case 'Notification' in data:
-                handleNotificationMessage(data.Notification);
+                handle_notification_message(data.Notification);
                 break;
             case 'Typing' in data:
-                handleTypingMessage(data.Typing);
+                handle_typing_message(data.Typing);
                 break;
             case 'Deletion' in data:
-                handleMessageDeletionMessage(data.Deletion);
+                handle_message_deletion_message(data.Deletion);
                 break;
             case 'NewUser' in data:
-                handleNewUserMessage(data.NewUser);
+                handle_new_user_message(data.NewUser);
                 break;
             case 'UserAddition' in data:
-                handleUserAdditionMessage(data.UserAddition);
+                handle_user_addition_message(data.UserAddition);
                 break;
             case 'UserRemoval' in data:
-                handleUserRemovalMessage(data.UserRemoval);
+                handle_user_removal_message(data.UserRemoval);
                 break;
             case 'ChangeRoom' in data:
-                handleChangeRoomMessage(data.ChangeRoom);
+                handle_room_change_message(data.ChangeRoom);
                 break;
             case 'UsernameChange' in data:
-                handleUsernameChangeMessage(data.UsernameChange);
+                handle_username_change_message(data.UsernameChange);
                 break;
             case 'CreateRoomChange' in data:
-                handleCreateRoomChangeMessage(data.CreateRoomChange);
+                handle_create_room_message(data.CreateRoomChange);
                 break;
             default:
                 console.error("Unknown message type received");
@@ -162,14 +162,14 @@ function initializeWebSocket(server_ip: string): void {
     };
 }
 
-function handleInitialization(init_message: InitMessage) {
+function handle_initialization(init_message: InitMessage) {
     sender_id = init_message.user_id;
     ws_id = init_message.ws_id;
     username = init_message.username;
     user_map = init_message.user_map;
 }
 
-function handleBasicMessage(message: BasicMessage) {
+function handle_basic_message(message: BasicMessage) {
     if (message.ws_id === ws_id) {
         const chatContainer = document.getElementById('chat-container')!;
         const sentContainers = chatContainer.getElementsByClassName('sent-container');
@@ -248,7 +248,7 @@ document.getElementById('delete-selected-messages')?.addEventListener('click', (
         if (messageContainer) {
             const messageId = messageContainer.getAttribute('data-message-id');
             if (messageId) {
-                deleteMessage(messageId);
+                delete_message(messageId);
                 messageContainer.remove();
             }
         }
@@ -260,16 +260,16 @@ document.getElementById('delete-selected-messages')?.addEventListener('click', (
 });
 
 
-function handleImageMessage(message: ImageMessage) {}
-function handleNotificationMessage(message: NotificationMessage) {}
-function handleTypingMessage(typingMessage: TypingMessage) {}
-function handleNewUserMessage(message: NewUserMessage) {
+function handle_image_message(message: ImageMessage) {}
+function handle_notification_message(message: NotificationMessage) {}
+function handle_typing_message(typingMessage: TypingMessage) {}
+function handle_new_user_message(message: NewUserMessage) {
     user_map[message.user_id] = message.username;
 }
-function handleUserAdditionMessage(message: UserAdditionMessage) {}
-function handleUserRemovalMessage(message: UserRemovalMessage) {}
-function handleChangeRoomMessage(message: ChangeRoomMessage) {}
-function handleMessageDeletionMessage(message: DeletionMessage) {
+function handle_user_addition_message(message: UserAdditionMessage) {}
+function handle_user_removal_message(message: UserRemovalMessage) {}
+function handle_room_change_message(message: ChangeRoomMessage) {}
+function handle_message_deletion_message(message: DeletionMessage) {
     // Extract the message_id from the deletion message
     const messageId = message.message_id;
 
@@ -281,15 +281,15 @@ function handleMessageDeletionMessage(message: DeletionMessage) {
         messageElement.remove();
     }
 }
-function handleUsernameChangeMessage(username_change_message: UsernameChangeMessage) {
-    retroactivelyChangeUsername(user_map[username_change_message.sender_id],username_change_message.new_username);
+function handle_username_change_message(username_change_message: UsernameChangeMessage) {
+    retroactively_change_username(user_map[username_change_message.sender_id],username_change_message.new_username);
     user_map[username_change_message.sender_id] = username_change_message.new_username;
     if (sender_id === username_change_message.sender_id){
         username = username_change_message.new_username;
     }
 }
 
-function retroactivelyChangeUsername(old_username: string, new_username: string): void {
+function retroactively_change_username(old_username: string, new_username: string): void {
     const chatContainer = document.getElementById('chat-container');
     if (chatContainer) {
         const messages = chatContainer.getElementsByClassName('chat-message');
@@ -307,14 +307,14 @@ function retroactivelyChangeUsername(old_username: string, new_username: string)
     }
 }
 
-function handleCreateRoomChangeMessage(createRoomChangeMessage: CreateRoomChangeMessage) {}
+function handle_create_room_message(createRoomChangeMessage: CreateRoomChangeMessage) {}
 
 document.getElementById('Message')!.addEventListener('submit', function(event: Event) {
     event.preventDefault();
-    sendMessage();
+    send_message();
 });
 
-function sendMessage(): void {
+function send_message(): void {
     const textarea: HTMLTextAreaElement = document.querySelector('textarea[name="message_form"]')!;
     const messageContent: string = textarea.value.trim();
     if (messageContent !== '') {
@@ -371,12 +371,12 @@ if (textarea) {
     textarea.addEventListener('keydown', function(event: KeyboardEvent) {
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            sendMessage();
+            send_message();
         }
     });
 }
 
-function sendUsernameChange(new_username: string): void {
+function send_username_change(new_username: string): void {
     const usernameChangeMessage: UsernameChangeMessage = {
         new_username: new_username,
         sender_id: sender_id,
@@ -399,15 +399,15 @@ function sendUsernameChange(new_username: string): void {
     })
     .then(data => {
         console.log("Username change successful:", data);
-        displayMessage('Username change successful!', 'success'); // Show success message
+        display_message('Username change successful!', 'success'); // Show success message
     })
     .catch(error => {
         console.error('There has been a problem with your fetch operation:', error.message);
-        displayMessage(error.message, 'error'); // Show error message
+        display_message(error.message, 'error'); // Show error message
     });    
 }
 
-function displayMessage(message: string, type: 'success' | 'error'): void {
+function display_message(message: string, type: 'success' | 'error'): void {
     const messageContainer = document.getElementById('message-container');
     if (messageContainer) {
         messageContainer.innerText = message;
@@ -432,7 +432,7 @@ document.getElementById('Username')!.addEventListener('submit', function(event: 
     const username_field: HTMLInputElement = document.getElementById('username_field')! as HTMLInputElement;
     const new_username: string = username_field.value.trim();
     if (new_username !== '') {
-        sendUsernameChange(new_username);
+        send_username_change(new_username);
     }
 });
 
@@ -442,12 +442,12 @@ document.getElementById('Username')!.addEventListener('keydown', function(event:
         const username_field: HTMLInputElement = document.getElementById('username_field')! as HTMLInputElement;
         const new_username: string = username_field.value.trim();
         if (new_username !== '') {
-            sendUsernameChange(new_username);
+            send_username_change(new_username);
         }
     }
 });
 
-function deleteMessage(message_id: string): void {
+function delete_message(message_id: string): void {
 
     const message: DeletionMessage = {
         sender_id: sender_id,
@@ -463,9 +463,6 @@ function deleteMessage(message_id: string): void {
         socket.send(JSON.stringify(wrapped_message));
     }
 }
-
-
-  
 
 document.querySelector('input[type="file"][name="image"]')!.addEventListener('change', function(event: Event) {
     const input = event.target as HTMLInputElement;
