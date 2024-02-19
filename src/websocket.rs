@@ -54,10 +54,6 @@ pub struct WsActor {
     pub state: Arc<AppState>,
 }
 
-impl WsActor {
-    
-}
-
 pub async fn add_user_to_room(
     user_id: String, 
     room_id: String, 
