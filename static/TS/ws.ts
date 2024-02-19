@@ -3,6 +3,7 @@ let user_map: { [key: string]: string } = {};
 let ws_id = "";
 let username = "";
 let current_room = "";
+let room_map: { [key: string]: string} = {};
 
 let socket: WebSocket;
 
