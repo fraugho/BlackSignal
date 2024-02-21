@@ -12,6 +12,10 @@ use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 use uuid::Uuid;
 use serde_json::json;
+use std::time::{Instant, Duration};
+
+const MESSAGE_TOKENS: u32 = 100;
+const TIME_FRAME: Duration = Duration::from_secs(10);
 
 pub async fn get_messages(
     app_state: Arc<AppState>, 
@@ -52,23 +56,27 @@ pub struct WsActor {
     pub current_room: String,
     pub rooms: Vec<String>,
     pub state: Arc<AppState>,
+    pub request_token_count: u32,
+    pub start_time: Instant,
 }
 
-pub async fn add_user_to_room(
-    user_id: String, 
-    room_id: String, 
-    db: Arc<Surreal<Client>>) {
-    let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
-    if let Err(e) = db
-        .query(query)
-        .bind(("user_id", user_id))
-        .bind(("room_id", room_id))
-        .await
-    {
-        log::error!(
-            "Failed to add user to room: fn add_user_to_room, error: {:?}",
-            e
-        );
+impl WsActor {
+    fn reset_rate_limit(&mut self) {
+        self.request_token_count = 10;
+        self.start_time = Instant::now();
+    }
+    
+    fn check_and_update_rate_limit(&mut self) -> bool {
+        let elapsed = self.start_time.elapsed();
+        
+        // Check if the current period has exceeded the time frame
+        if elapsed > TIME_FRAME {
+            // Time frame exceeded, reset rate limiting counters
+            self.reset_rate_limit();
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -119,6 +127,25 @@ impl Actor for WsActor {
             hashmap.remove(&self.ws_id.clone());
         }
         actix::spawn(async move { change_to_offline(db, user_id).await });
+    }
+
+}
+
+pub async fn add_user_to_room(
+    user_id: String, 
+    room_id: String, 
+    db: Arc<Surreal<Client>>) {
+    let query = "UPDATE rooms SET users += $user_id WHERE room_id = $room_id;";
+    if let Err(e) = db
+        .query(query)
+        .bind(("user_id", user_id))
+        .bind(("room_id", room_id))
+        .await
+    {
+        log::error!(
+            "Failed to add user to room: fn add_user_to_room, error: {:?}",
+            e
+        );
     }
 }
 
@@ -272,6 +299,13 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
         msg: std::result::Result<ws::Message, ws::ProtocolError>,
         ctx: &mut Self::Context,
     ) {
+        if !self.check_and_update_rate_limit() && self.request_token_count == 0  {
+            return;
+        }
+        match self.request_token_count.checked_sub(1){
+            Some(result) => self.request_token_count = result,
+            None => println!("Underflow occurred"),
+        }
         if let Ok(ws::Message::Text(text)) = msg {
             match serde_json::from_str::<UserMessage>(&text) {
                 Ok(message) => match message {
@@ -412,6 +446,8 @@ pub async fn ws_index(
                     current_room: main_room_id.clone(),
                     rooms: user.rooms,
                     state: state.into_inner().clone(),
+                    request_token_count: MESSAGE_TOKENS,
+                    start_time: Instant::now(),
                 };
                 return ws::start(ws_actor, &req, stream);
             }
