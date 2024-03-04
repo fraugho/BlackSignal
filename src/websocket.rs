@@ -309,11 +309,11 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
         if let Ok(ws::Message::Text(text)) = msg {
             match serde_json::from_str::<UserMessage>(&text) {
                 Ok(message) => match message {
-                    UserMessage::Basic(basic_message) => {
+                    UserMessage::TSBasic(ts_basic_message) => {
                         let app_state = self.state.clone();
                         let now = Utc::now();
                         let basic_message = BasicMessage {
-                            content: basic_message.content,
+                            content: ts_basic_message.content,
                             sender_id: self.user_id.clone(),
                             timestamp: now.timestamp() as u64,
                             message_id: Uuid::new_v4().to_string().replace('-', ""),
@@ -330,10 +330,11 @@ impl StreamHandler<std::result::Result<ws::Message, ws::ProtocolError>> for WsAc
                                     Err(e) => {log::error!("Failed to create message in db: fn handle, error: {:?}", e);
                                     return}
                                 };
-                            let serialized_msg = serde_json::to_string(&UserMessage::Basic(
-                                basic_message.clone(),
-                            ))
-                            .unwrap();
+                            let serialized_msg = match serde_json::to_string(&UserMessage::Basic(basic_message.clone(),)){
+                                Ok(serialized) => serialized,
+                                Err(e) => {log::error!("Failed to create message in db: fn handle, error: {:?}", e);
+                                return}
+                            };
                             app_state
                                 .broadcast_message(
                                     serialized_msg,

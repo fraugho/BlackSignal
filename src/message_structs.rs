@@ -34,6 +34,7 @@ impl InitMessage {
 #[derive(Serialize, Deserialize, Clone)]
 pub enum UserMessage {
     Basic(BasicMessage),
+    TSBasic(TSBasicMessage),
     Image(ImageMessage),
     Notification(NotificationMessage),
     Typing(TypingMessage),
@@ -62,6 +63,11 @@ pub struct BasicMessage {
     pub message_id: String,
     pub room_id: String,
     pub ws_id: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TSBasicMessage {
+    pub content: String,
 }
 
 // ImageMessage Struct
