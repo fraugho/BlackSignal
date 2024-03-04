@@ -38,6 +38,10 @@ interface BasicMessage {
     timestamp: number;
 }
 
+interface TSBasicMessage {
+    content: string;
+}
+
 interface ImageMessage {
     image_url: string;
     sender_id: string;
@@ -88,6 +92,7 @@ interface DeletionMessage {
 
 type UserMessage =
     | { Basic: BasicMessage }
+    | { TSBasic: TSBasicMessage }
     | { Image: ImageMessage }
     | { Notification: NotificationMessage }
     | { Typing: TypingMessage }
@@ -317,19 +322,14 @@ document.getElementById('Message')!.addEventListener('submit', function(event: E
 
 function send_message(): void {
     const textarea: HTMLTextAreaElement = document.querySelector('textarea[name="message_form"]')!;
-    const messageContent: string = textarea.value.trim();
-    if (messageContent !== '') {
-        const basic_message: BasicMessage = {
-            content: messageContent,
-            sender_id: sender_id,
-            message_id: "",
-            room_id: current_room,
-            ws_id: ws_id,
-            timestamp: Date.now(),
+    const message_content: string = textarea.value.trim();
+    if (message_content !== '') {
+        const basic_message: TSBasicMessage = {
+            content: message_content,
         };
     
         const wrappedMessage: UserMessage = {
-            Basic: basic_message
+            TSBasic: basic_message
         };
     
         if (socket.readyState === WebSocket.OPEN) {
@@ -346,7 +346,7 @@ function send_message(): void {
         
         usernameElement.textContent = username + ':';
         usernameElement.classList.add('username');
-        messageElement.textContent = messageContent;
+        messageElement.textContent = message_content;
         
         messageWrapper.appendChild(usernameElement);
         messageWrapper.appendChild(messageElement);

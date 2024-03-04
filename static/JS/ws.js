@@ -14,6 +14,7 @@ let user_map = {};
 let ws_id = "";
 let username = "";
 let current_room = "";
+let room_map = {};
 let socket;
 var MessageType;
 (function (MessageType) {
@@ -219,18 +220,13 @@ document.getElementById('Message').addEventListener('submit', function (event) {
 });
 function send_message() {
     const textarea = document.querySelector('textarea[name="message_form"]');
-    const messageContent = textarea.value.trim();
-    if (messageContent !== '') {
+    const message_content = textarea.value.trim();
+    if (message_content !== '') {
         const basic_message = {
-            content: messageContent,
-            sender_id: sender_id,
-            message_id: "",
-            room_id: current_room,
-            ws_id: ws_id,
-            timestamp: Date.now(),
+            content: message_content,
         };
         const wrappedMessage = {
-            Basic: basic_message
+            TSBasic: basic_message
         };
         if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify(wrappedMessage));
@@ -244,7 +240,7 @@ function send_message() {
         messageWrapper.classList.add('chat-message', 'sent-message');
         usernameElement.textContent = username + ':';
         usernameElement.classList.add('username');
-        messageElement.textContent = messageContent;
+        messageElement.textContent = message_content;
         messageWrapper.appendChild(usernameElement);
         messageWrapper.appendChild(messageElement);
         const checkbox = document.createElement('input');
