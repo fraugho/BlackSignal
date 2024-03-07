@@ -413,54 +413,58 @@ pub async fn ws_index(
     session: Session,
 ) -> std::result::Result<HttpResponse, actix_web::Error> {
     let main_room_id = state.main_room_id.clone();
-    if let Some(user_id) = session.get::<String>("key").unwrap() {
-        let query = "SELECT * FROM users WHERE user_id = $user_id;";
-        let mut response = match state
-            .db
-            .query(query)
-            .bind(("user_id", user_id.clone()))
-            .await {
-                Ok(retrieved) => retrieved,
-                Err(e) => {log::error!("Failed to query user data: fn ws_index, error: {:?}", e);
-                    session.purge();
-                    return Ok(HttpResponse::Found()
-                        .append_header(("LOCATION", "/login"))
-                        .finish());
-                }
-            };
-        let user_query: Option<UserData> = match response
-            .take(0){
-                Ok(retrieved) => retrieved,
-                Err(e) => {log::error!("Failed to get user data: fn ws_index, error: {:?}", e);
-                    session.purge();
-                    return Ok(HttpResponse::Found()
-                        .append_header(("LOCATION", "/login"))
-                        .finish());
-                }
-            };
-        match user_query {
-            Some(user) => {
-                let ws_actor = WsActor {
-                    user_id,
-                    ws_id: Uuid::new_v4().to_string().replace('-', ""),
-                    username: user.username,
-                    current_room: main_room_id.clone(),
-                    rooms: user.rooms,
-                    state: state.into_inner().clone(),
-                    request_token_count: MESSAGE_TOKENS,
-                    start_time: Instant::now(),
-                };
-                return ws::start(ws_actor, &req, stream);
-            }
-            None => {
+    let user_id = match session.get::<String>("key").unwrap() {
+        Some(user_id) => user_id,
+        None => {
+            return Ok(HttpResponse::Found()
+                .append_header(("LOCATION", "/login"))
+                .finish());
+        }
+    };
+    let query = "SELECT * FROM users WHERE user_id = $user_id;";
+    let mut response = match state
+        .db
+        .query(query)
+        .bind(("user_id", user_id.clone()))
+        .await {
+            Ok(retrieved) => retrieved,
+            Err(e) => {
+                log::error!("Failed to query user data: fn ws_index, error: {:?}", e);
                 session.purge();
                 return Ok(HttpResponse::Found()
                     .append_header(("LOCATION", "/login"))
                     .finish());
             }
+        };
+    let user_query: Option<UserData> = match response.take(0) {
+        Ok(retrieved) => retrieved,
+        Err(e) => {
+            log::error!("Failed to get user data: fn ws_index, error: {:?}", e);
+            session.purge();
+            return Ok(HttpResponse::Found()
+                .append_header(("LOCATION", "/login"))
+                .finish());
+        }
+    };
+    match user_query {
+        Some(user) => {
+            let ws_actor = WsActor {
+                user_id,
+                ws_id: Uuid::new_v4().to_string().replace('-', ""),
+                username: user.username,
+                current_room: main_room_id.clone(),
+                rooms: user.rooms,
+                state: state.into_inner().clone(),
+                request_token_count: MESSAGE_TOKENS,
+                start_time: Instant::now(),
+            };
+            ws::start(ws_actor, &req, stream)
+        }
+        None => {
+            session.purge();
+            Ok(HttpResponse::Found()
+                .append_header(("LOCATION", "/login"))
+                .finish())
         }
     }
-    return Ok(HttpResponse::Found()
-        .append_header(("LOCATION", "/login"))
-        .finish());
 }

@@ -31,15 +31,8 @@ var MessageType;
     MessageType["Initialization"] = "Initialization";
     MessageType["Deletion"] = "Deletion";
 })(MessageType || (MessageType = {}));
-fetch('/get-ip')
-    .then(response => response.json())
-    .then(data => {
-    const server_ip = data.ip;
-    console.log('Server IP:', server_ip);
-    initializeWebSocket(server_ip);
-})
-    .catch(error => console.error('Error fetching server IP:', error));
-function initializeWebSocket(server_ip) {
+initializeWebSocket("127.0.0.1")
+    function initializeWebSocket(server_ip) {
     socket = new WebSocket(`ws://${server_ip}:8080/ws/`);
     socket.onclose = (event) => {
         if (!event.wasClean) {
