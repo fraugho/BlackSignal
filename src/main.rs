@@ -1,5 +1,7 @@
 use actix_web::{get, post, web, App, HttpServer, HttpResponse, Responder};
-use actix_session::{Session, CookieSession};
+use actix_session::{storage::RedisSessionStore, Session, SessionMiddleware};
+use actix_session::storage::RedisActorSessionStore;
+use actix_web::cookie::Key;
 use actix_files::Files;
 use surrealdb::engine::remote::ws::Ws;
 use surrealdb::opt::auth::Root;
@@ -8,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::fs::read_to_string;
 use std::io::Write;
+
 use local_ip_address::local_ip;
 use serde::{Deserialize, Serialize};
 use bcrypt::{hash, DEFAULT_COST};
@@ -76,7 +79,14 @@ async fn create_login_action(state: web::Data<AppState>, form: web::Json<LoginFo
         let serialized_message = serde_json::to_string(&message).unwrap();
 
         state.broadcast_message(serialized_message, state.main_room_id.clone(), user_data.user_id.clone()).await;
-        session.insert("key", user_data.user_id).unwrap();
+        match session.insert("key", user_data.user_id){
+            Ok(_) => HttpResponse::Found().append_header(("LOCATION", "/")).finish(),
+            Err(e) => {
+                println!("Error: {:?}", e);
+                log::error!("Error: {:?}", e);
+                HttpResponse::InternalServerError().finish()
+            }
+        };
         HttpResponse::Found().append_header(("LOCATION", "/")).finish()
     } else {
         HttpResponse::Ok().json(json!(LoginErrorMessage::new("Invalid Please enter an email and a password".to_string())))
@@ -100,10 +110,13 @@ async fn login_action(state: web::Data<AppState>, form: web::Json<LoginForm>, se
     let login = form.into_inner();
     match state.authenticate_user(&login).await {
         Some(username) => {
-            if session.insert("key", username).is_ok() {
-                HttpResponse::Found().append_header(("LOCATION", "/")).finish()
-            } else {
-                HttpResponse::Found().append_header(("LOCATION", "/login")).finish()
+            match session.insert("key", username){
+                Ok(_) => HttpResponse::Found().append_header(("LOCATION", "/")).finish(),
+                Err(e) => {
+                    println!("Error: {:?}", e);
+                    log::error!("Error: {:?}", e);
+                    HttpResponse::InternalServerError().finish()
+                }
             }
         }
         None => {
@@ -199,6 +212,8 @@ async fn home_page(session: Session) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init();
+
     let db = match Surreal::new::<Ws>("localhost:8000").await {
         Ok(connected) => connected,
         Err(e) => {log::error!("Failed to connect to database: fn main, error: {:?}", e);
@@ -274,8 +289,14 @@ async fn main() -> std::io::Result<()> {
         return Ok(())
     }
 
+    let secret_key = Key::generate();
+
     HttpServer::new(move || {
         App::new()
+            .wrap(SessionMiddleware::new(
+                RedisActorSessionStore::new("127.0.0.1:6379"),
+                secret_key.clone(),
+            ))
             .app_data(app_state.clone())
             .service(home_page)
             .service(login_page)
@@ -285,13 +306,10 @@ async fn main() -> std::io::Result<()> {
             .service(logout)
             .service(change_username)
             .service(get_ip)
-            .service(Files::new("/Images", "./Images"))
-            .service(get_image)
             .route("/ws/", web::get().to(ws_index))
             .service(actix_files::Files::new("/static", "static").show_files_listing())
-            .wrap(CookieSession::signed(&[0; 32]).secure(false))
     })
-    .bind((address, 8080))?
+    .bind(("127.0.0.1", 8080))?
     .run()
     .await
 }
